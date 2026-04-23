@@ -19,7 +19,7 @@ Configuration is read from environment variables (set via .env file):
   PVS_PASS       - PVS auth password (last 5 chars of internal serial)
   PORT           - Server port (default: 5001)
   TIMEOUT_SECS   - PVS request timeout (default: 120)
-  REFRESH_SECS   - Background refresh interval (default: 900)
+  REFRESH_SECS   - Background refresh interval (default: 3600)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
@@ -44,7 +44,7 @@ PVS_PASS = os.environ.get("PVS_PASS", "")
 TIMEOUT_SECS = int(os.environ.get("TIMEOUT_SECS", "120"))
 PORT = int(os.environ.get("PORT", "5001"))
 HOST = os.environ.get("HOST", "0.0.0.0")
-REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "900"))
+REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "3600"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "solar_history.db"))
 
 # Logging
@@ -780,7 +780,7 @@ def health():
         "last_error": cache.last_error,
         "fetching": cache.fetching,
         "history_entries": count,
-        "history_earliest": datetime.utcfromtimestamp(earliest).isoformat() if earliest else None,
+        "history_earliest": datetime.fromtimestamp(earliest, tz=timezone.utc).isoformat() if earliest else None,
     }), mimetype="application/json")
 
 
