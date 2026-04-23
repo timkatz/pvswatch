@@ -375,6 +375,7 @@ def _supplement_devices(devices_json, ip, sess):
                 d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 logger.debug("Meter-C CURTIME overridden to %s", d["CURTIME"])
 
+    # If meters already present in device list, return now
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
         return json.dumps(data), livedata
 
@@ -390,6 +391,8 @@ def _supplement_devices(devices_json, ip, sess):
             # Override with livedata if available
             if livedata:
                 meter_c["p_3phsum_kw"] = str(site_load_p)
+                if ld_ts is not None:
+                    meter_c["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             device_list.append(meter_c)
 
     if "PVS5-METER-P" not in types:
@@ -399,7 +402,22 @@ def _supplement_devices(devices_json, ip, sess):
             if livedata:
                 meter_p["p_3phsum_kw"] = str(pv_p)
                 meter_p["net_ltea_3phsum_kwh"] = str(pv_en)
+                if ld_ts is not None:
+                    meter_p["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             device_list.append(meter_p)
+
+    # Second pass: override any supplemented meters with livedata
+    for d in device_list:
+        dtype = d.get("TYPE", "")
+        if dtype == "PVS5-METER-P" and livedata:
+            d["p_3phsum_kw"] = str(pv_p)
+            d["net_ltea_3phsum_kwh"] = str(pv_en)
+            if ld_ts is not None:
+                d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        elif dtype == "PVS5-METER-C" and livedata:
+            d["p_3phsum_kw"] = str(site_load_p)
+            if ld_ts is not None:
+                d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     data["devices"] = device_list
     return json.dumps(data), livedata
