@@ -347,7 +347,6 @@ def _supplement_devices(devices_json, ip, sess):
     pv_en = float(livedata.get("pv_en", 0))
     site_load_en = float(livedata.get("site_load_en", 0))
     ld_time = livedata.get("time", "")
-    logger.debug("livedata keys: %s, ld_time=%s", list(livedata.keys())[:5], ld_time)
 
     if livedata:
         logger.info("Livedata: pv=%.3fkW load=%.3fkW net=%.3fkW (age=%s)",
@@ -355,24 +354,26 @@ def _supplement_devices(devices_json, ip, sess):
                      f"{(time.time()-float(ld_time)):.0f}s" if ld_time else "?")
 
     # Override existing meter power values with livedata
+    ld_ts = None
+    if ld_time:
+        try:
+            ld_ts = float(ld_time)
+        except (ValueError, TypeError):
+            ld_ts = None
+
     for d in device_list:
         dtype = d.get("TYPE", "")
         if dtype == "PVS5-METER-P" and livedata:
             d["p_3phsum_kw"] = str(pv_p)
             d["net_ltea_3phsum_kwh"] = str(pv_en)
-            # Freshen CURTIME from livedata epoch
-            if ld_time:
-                from datetime import datetime, timezone
-                ts = float(ld_time)
-                d["CURTIME"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                logger.debug("Overriding Meter-P CURTIME to %s", d["CURTIME"])
+            if ld_ts is not None:
+                d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                logger.debug("Meter-P CURTIME overridden to %s", d["CURTIME"])
         elif dtype == "PVS5-METER-C" and livedata:
             d["p_3phsum_kw"] = str(site_load_p)
-            if ld_time:
-                from datetime import datetime, timezone
-                ts = float(ld_time)
-                d["CURTIME"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                logger.debug("Overriding Meter-C CURTIME to %s", d["CURTIME"])
+            if ld_ts is not None:
+                d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                logger.debug("Meter-C CURTIME overridden to %s", d["CURTIME"])
 
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
         return json.dumps(data), livedata
