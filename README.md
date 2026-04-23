@@ -51,7 +51,7 @@ All config lives in `.env`:
 | `PVS_SERIAL` | — | Full internal serial (for reference) |
 | `DASHBOARD_PORT` | `5002` | Host port for the dashboard |
 | `TIMEOUT_SECS` | `120` | PVS request timeout (dl_cgi can be very slow) |
-| `REFRESH_SECS` | `60` | Background refresh interval |
+| `REFRESH_SECS` | `300` | Background refresh interval (5 min) |
 | `DATA_DIR` | `./data` | Directory for SQLite history database |
 | `TS_HOSTNAME` | `sunstrong` | Tailscale hostname |
 | `LOG_LEVEL` | `INFO` | Python log level |
