@@ -11,7 +11,7 @@ services:
       - PVS_IP=${PVS_IP:-192.168.1.50}
       - PVS_USER=${PVS_USER:-ssm_owner}
       - PVS_PASS=${PVS_PASS:-}
-      - PORT=${DASHBOARD_PORT:-5001}
+      - PORT=${DASHBOARD_PORT:-5002}
       - TIMEOUT_SECS=${TIMEOUT_SECS:-120}
       - REFRESH_SECS=${REFRESH_SECS:-60}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -19,11 +19,11 @@ services:
     volumes:
       - ${DATA_DIR:-/mnt/user/appdata/sunstrong/data}:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${DASHBOARD_PORT:-5002}/health')"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 90s
 
   tailscale:
     image: tailscale/tailscale:stable
@@ -63,6 +63,6 @@ services:
           echo "tailscale up failed (attempt $$i/12), retrying in 5s..."
           sleep 5
         done
-        tailscale serve --bg --https=443 http://127.0.0.1:5001
+        tailscale serve --bg --https=443 http://127.0.0.1:${DASHBOARD_PORT:-5002}
         tail -f /dev/null
       '
