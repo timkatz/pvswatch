@@ -32,7 +32,7 @@ import logging
 import urllib3
 import threading
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Ignore insecure HTTPS warnings for self-signed gateway certs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
