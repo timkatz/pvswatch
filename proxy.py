@@ -347,6 +347,7 @@ def _supplement_devices(devices_json, ip, sess):
     pv_en = float(livedata.get("pv_en", 0))
     site_load_en = float(livedata.get("site_load_en", 0))
     ld_time = livedata.get("time", "")
+    logger.debug("livedata keys: %s, ld_time=%s", list(livedata.keys())[:5], ld_time)
 
     if livedata:
         logger.info("Livedata: pv=%.3fkW load=%.3fkW net=%.3fkW (age=%s)",
