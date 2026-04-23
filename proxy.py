@@ -97,8 +97,9 @@ def _init_db():
     logger.info("History database initialized at %s", DB_PATH)
 
 
-def _record_reading(devices_json_str):
-    """Parse device data and record a time-series reading."""
+def _record_reading(devices_json_str, livedata=None):
+    """Parse device data and record a time-series reading.
+    If livedata is provided, uses fresh pv_p/site_load_p values."""
     try:
         data = json.loads(devices_json_str) if isinstance(devices_json_str, str) else devices_json_str
     except (json.JSONDecodeError, TypeError):
@@ -109,12 +110,19 @@ def _record_reading(devices_json_str):
     meter_c = next((d for d in devices if d.get("TYPE") == "PVS5-METER-C"), None)
     inverters = [d for d in devices if d.get("TYPE") == "SOLARBRIDGE"]
 
-    p_kw = float(meter_p.get("p_3phsum_kw", 0) if meter_p else 0)
-    c_kw = float(meter_c.get("p_3phsum_kw", 0) if meter_c else 0)
-    production = p_kw if p_kw > 0.005 else 0
-    consumption = c_kw if c_kw > 0.005 else 0
-    net = production - consumption
-    lifetime = float(meter_p.get("net_ltea_3phsum_kwh", 0) if meter_p else 0)
+    # Prefer livedata for real-time power, fall back to meter values
+    if livedata:
+        production = float(livedata.get("pv_p", 0))
+        consumption = float(livedata.get("site_load_p", 0))
+        net = float(livedata.get("net_p", 0))
+        lifetime = float(livedata.get("pv_en", 0))
+    else:
+        p_kw = float(meter_p.get("p_3phsum_kw", 0) if meter_p else 0)
+        c_kw = float(meter_c.get("p_3phsum_kw", 0) if meter_c else 0)
+        production = p_kw if p_kw > 0.005 else 0
+        consumption = c_kw if c_kw > 0.005 else 0
+        net = production - consumption
+        lifetime = float(meter_p.get("net_ltea_3phsum_kwh", 0) if meter_p else 0)
     sys_v = float(meter_c.get("v12_v", 0) if meter_c else 0)
     l1_v = float(meter_c.get("v1n_v", 0) if meter_c else 0)
     l2_v = float(meter_c.get("v2n_v", 0) if meter_c else 0)
@@ -321,11 +329,12 @@ def _build_meter_device(vars_data, meter_index, suffix):
 
 def _supplement_devices(devices_json, ip, sess):
     """If meters are missing, inject synthetic PVS5-METER-P/C from varserver data.
-    Also overrides meter power values with fresh livedata from /sys/livedata/."""
+    Also overrides meter power values with fresh livedata from /sys/livedata/.
+    Returns (json_str, livedata_dict)."""
     try:
         data = json.loads(devices_json) if isinstance(devices_json, str) else devices_json
     except (json.JSONDecodeError, TypeError):
-        return devices_json
+        return devices_json, {}
 
     device_list = data.get("devices", [])
     types = {d.get("TYPE", "") for d in device_list}
@@ -350,24 +359,28 @@ def _supplement_devices(devices_json, ip, sess):
         if dtype == "PVS5-METER-P" and livedata:
             d["p_3phsum_kw"] = str(pv_p)
             d["net_ltea_3phsum_kwh"] = str(pv_en)
-            # Update CURTIME if livedata has a fresher timestamp
+            # Freshen CURTIME from livedata epoch
             if ld_time:
                 from datetime import datetime, timezone
-                d["CURTIME"] = datetime.fromtimestamp(float(ld_time), tz=timezone.utc).strftime("%Y,%m,%d,%H,%M,%S")
+                ts = float(ld_time)
+                d["CURTIME"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                logger.debug("Overriding Meter-P CURTIME to %s", d["CURTIME"])
         elif dtype == "PVS5-METER-C" and livedata:
             d["p_3phsum_kw"] = str(site_load_p)
             if ld_time:
                 from datetime import datetime, timezone
-                d["CURTIME"] = datetime.fromtimestamp(float(ld_time), tz=timezone.utc).strftime("%Y,%m,%d,%H,%M,%S")
+                ts = float(ld_time)
+                d["CURTIME"] = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                logger.debug("Overriding Meter-C CURTIME to %s", d["CURTIME"])
 
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
-        return json.dumps(data)
+        return json.dumps(data), livedata
 
     # Meters missing — supplement from full varserver data
     logger.info("Meters missing, supplementing from varserver")
     vars_data = _fetch_vars(sess, ip)
     if not vars_data:
-        return json.dumps(data)
+        return json.dumps(data), livedata
 
     if "PVS5-METER-C" not in types:
         meter_c = _build_meter_device(vars_data, 0, "c")
@@ -387,7 +400,7 @@ def _supplement_devices(devices_json, ip, sess):
             device_list.append(meter_p)
 
     data["devices"] = device_list
-    return json.dumps(data)
+    return json.dumps(data), livedata
 
 
 # ── PVS authentication ────────────────────────────────────────────────
@@ -475,13 +488,13 @@ def _refresh_data():
             cache.set_error(f"HTTP {r.status_code}")
             return
 
-        # Supplement with varserver meter data if needed
-        supplemented = _supplement_devices(r.text, ip, sess)
+        # Supplement with varserver meter data and livedata overrides
+        supplemented, livedata = _supplement_devices(r.text, ip, sess)
         cache.set(supplemented)
         cache.set_error(None)
 
         # Record in time-series database
-        _record_reading(supplemented)
+        _record_reading(supplemented, livedata=livedata)
 
         logger.info("Data refreshed (%d bytes)", len(supplemented))
 
