@@ -7,9 +7,10 @@ meter data from the varserver API, and serves the dashboard HTML with
 server-side config baked in.
 
 Features:
-  - Background data refresh: caches PVS data and refreshes every 30s
+  - Background data refresh: caches PVS data and refreshes every 60s
   - Instant /devices response from cache (stale-while-revalidate)
   - PVS6 meter supplementation via varserver
+  - Time-series history via SQLite (/history endpoint)
   - Clean URL: no query params needed, config from .env
 
 Configuration is read from environment variables (set via .env file):
@@ -17,12 +18,12 @@ Configuration is read from environment variables (set via .env file):
   PVS_USER       - PVS auth username (default: ssm_owner)
   PVS_PASS       - PVS auth password (last 5 chars of internal serial)
   PORT           - Server port (default: 5001)
-  TIMEOUT_SECS   - PVS request timeout (default: 60)
-  REFRESH_SECS   - Background refresh interval (default: 30)
+  TIMEOUT_SECS   - PVS request timeout (default: 120)
+  REFRESH_SECS   - Background refresh interval (default: 60)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
-from flask import Flask, request, Response, send_file
+from flask import Flask, request, Response, send_file, jsonify
 import requests
 import json
 import os
@@ -30,6 +31,8 @@ import time
 import logging
 import urllib3
 import threading
+import sqlite3
+from datetime import datetime, timedelta
 
 # Ignore insecure HTTPS warnings for self-signed gateway certs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -42,6 +45,7 @@ TIMEOUT_SECS = int(os.environ.get("TIMEOUT_SECS", "120"))
 PORT = int(os.environ.get("PORT", "5001"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "60"))
+DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "solar_history.db"))
 
 # Logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -50,6 +54,111 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder=".")
 sessions = {}
+
+# ── SQLite time-series storage ─────────────────────────────────────────
+_db_lock = threading.Lock()
+
+def _init_db():
+    """Create the history tables if they don't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    # Main readings table — one row per refresh cycle
+    c.execute("""CREATE TABLE IF NOT EXISTS readings (
+        ts REAL PRIMARY KEY,
+        production_kw REAL,
+        consumption_kw REAL,
+        net_kw REAL,
+        lifetime_kwh REAL,
+        sys_v REAL,
+        l1_v REAL,
+        l2_v REAL,
+        freq_hz REAL,
+        pf_production REAL,
+        pf_consumption REAL,
+        num_panels INTEGER,
+        panels_working INTEGER,
+        panels_error INTEGER
+    )""")
+    # Per-panel readings
+    c.execute("""CREATE TABLE IF NOT EXISTS panel_readings (
+        ts REAL,
+        serial TEXT,
+        panel_model TEXT,
+        state TEXT,
+        watts REAL,
+        v_dc REAL,
+        i_dc REAL,
+        v_ac REAL,
+        temp_c REAL,
+        PRIMARY KEY (ts, serial)
+    )""")
+    conn.commit()
+    conn.close()
+    logger.info("History database initialized at %s", DB_PATH)
+
+
+def _record_reading(devices_json_str):
+    """Parse device data and record a time-series reading."""
+    try:
+        data = json.loads(devices_json_str) if isinstance(devices_json_str, str) else devices_json_str
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    devices = data.get("devices", [])
+    meter_p = next((d for d in devices if d.get("TYPE") == "PVS5-METER-P"), None)
+    meter_c = next((d for d in devices if d.get("TYPE") == "PVS5-METER-C"), None)
+    inverters = [d for d in devices if d.get("TYPE") == "SOLARBRIDGE"]
+
+    p_kw = float(meter_p.get("p_3phsum_kw", 0) if meter_p else 0)
+    c_kw = float(meter_c.get("p_3phsum_kw", 0) if meter_c else 0)
+    production = p_kw if p_kw > 0.005 else 0
+    consumption = c_kw if c_kw > 0.005 else 0
+    net = production - consumption
+    lifetime = float(meter_p.get("net_ltea_3phsum_kwh", 0) if meter_p else 0)
+    sys_v = float(meter_c.get("v12_v", 0) if meter_c else 0)
+    l1_v = float(meter_c.get("v1n_v", 0) if meter_c else 0)
+    l2_v = float(meter_c.get("v2n_v", 0) if meter_c else 0)
+    freq = float(meter_c.get("freq_hz", 0) if meter_c else 0)
+    pf_p = float(meter_p.get("tot_pf_rto", 0) if meter_p else 0)
+    pf_c = float(meter_c.get("tot_pf_rto", 0) if meter_c else 0)
+    num_panels = len(inverters)
+    panels_working = sum(1 for i in inverters if (i.get("STATEDESCR") or i.get("STATE") or "").lower() == "working")
+    panels_error = num_panels - panels_working
+
+    ts = time.time()
+    now = datetime.utcnow().isoformat()
+
+    try:
+        with _db_lock:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("""INSERT OR REPLACE INTO readings
+                (ts, production_kw, consumption_kw, net_kw, lifetime_kwh,
+                 sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
+                 num_panels, panels_working, panels_error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (ts, production, consumption, net, lifetime,
+                 sys_v, l1_v, l2_v, freq, pf_p, pf_c,
+                 num_panels, panels_working, panels_error))
+            # Per-panel data
+            for inv in inverters:
+                serial = inv.get("SERIAL", "unknown")
+                state = inv.get("STATEDESCR") or inv.get("STATE") or "unknown"
+                kw = float(inv.get("p_3phsum_kw", 0) or 0)
+                watts = round(kw * 1000)
+                v_dc = float(inv.get("v_mppt1_v", 0) or 0)
+                i_dc = float(inv.get("i_mppt1_a", 0) or 0)
+                v_ac = float(inv.get("vln_3phavg_v", 0) or 0)
+                temp = float(inv.get("t_htsnk_degc", 0) or 0)
+                c.execute("""INSERT OR REPLACE INTO panel_readings
+                    (ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (ts, serial, inv.get("PANEL") or inv.get("MODEL") or "", state, watts, v_dc, i_dc, v_ac, temp))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        logger.warning("Failed to record history: %s", e)
+
 
 # ── Data cache ─────────────────────────────────────────────────────────
 class DataCache:
@@ -309,6 +418,10 @@ def _refresh_data():
         supplemented = _supplement_devices(r.text, ip, sess)
         cache.set(supplemented)
         cache.set_error(None)
+
+        # Record in time-series database
+        _record_reading(supplemented)
+
         logger.info("Data refreshed (%d bytes)", len(supplemented))
 
     except Exception as e:
@@ -377,20 +490,149 @@ def devices():
     return Response("Timed out waiting for PVS data.", status=504)
 
 
+# ── History API ────────────────────────────────────────────────────────
+@app.route("/history", methods=["GET"])
+def history():
+    """Return time-series data for charts.
+
+    Query params:
+      range  - Time range: 1h, 6h, 24h, 7d, 30d (default: 24h)
+      resample - Resample interval in seconds (default: auto based on range)
+    """
+    range_str = request.args.get("range", "24h")
+    resample = request.args.get("resample")
+
+    # Parse range
+    range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
+    range_secs = range_map.get(range_str, 86400)
+
+    # Auto-resample: aim for ~200-400 points max
+    if resample:
+        sample_secs = int(resample)
+    else:
+        target_points = 300
+        sample_secs = max(60, range_secs // target_points)
+        # Round up to nice intervals
+        if sample_secs <= 60:
+            sample_secs = 60
+        elif sample_secs <= 300:
+            sample_secs = (sample_secs // 60 + 1) * 60
+        elif sample_secs <= 600:
+            sample_secs = 300
+        elif sample_secs <= 1800:
+            sample_secs = 600
+        elif sample_secs <= 7200:
+            sample_secs = 1800
+        else:
+            sample_secs = 3600
+
+    cutoff = time.time() - range_secs
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Use bucketed query for resampling
+        bucket_expr = f"CAST((ts / {sample_secs}) AS INTEGER) * {sample_secs}"
+
+        rows = c.execute(f"""
+            SELECT
+                {bucket_expr} as bucket,
+                AVG(production_kw) as production_kw,
+                AVG(consumption_kw) as consumption_kw,
+                AVG(net_kw) as net_kw,
+                MAX(lifetime_kwh) as lifetime_kwh,
+                AVG(sys_v) as sys_v,
+                AVG(l1_v) as l1_v,
+                AVG(l2_v) as l2_v,
+                AVG(freq_hz) as freq_hz,
+                AVG(pf_production) as pf_production,
+                AVG(pf_consumption) as pf_consumption,
+                AVG(num_panels) as num_panels,
+                AVG(panels_working) as panels_working,
+                AVG(panels_error) as panels_error,
+                COUNT(*) as samples
+            FROM readings
+            WHERE ts > ?
+            GROUP BY bucket
+            ORDER BY bucket
+        """, (cutoff,)).fetchall()
+
+        result = {
+            "range": range_str,
+            "resample_seconds": sample_secs,
+            "readings": [dict(r) for r in rows]
+        }
+
+        conn.close()
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("History query error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/history/panels", methods=["GET"])
+def history_panels():
+    """Return per-panel time-series data for a specific time range."""
+    range_str = request.args.get("range", "24h")
+    range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
+    range_secs = range_map.get(range_str, 86400)
+    cutoff = time.time() - range_secs
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        rows = c.execute("""
+            SELECT ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c
+            FROM panel_readings
+            WHERE ts > ?
+            ORDER BY ts
+        """, (cutoff,)).fetchall()
+
+        result = {
+            "range": range_str,
+            "panels": [dict(r) for r in rows]
+        }
+        conn.close()
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error("Panel history query error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Health check ──────────────────────────────────────────────────────
 @app.route("/health")
 def health():
     data = cache.get()
     age = time.time() - cache.last_fetch if cache.last_fetch else -1
+
+    # Count history entries
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        count = c.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+        earliest = c.execute("SELECT MIN(ts) FROM readings").fetchone()[0]
+        conn.close()
+    except Exception:
+        count = 0
+        earliest = None
+
     return Response(json.dumps({
         "status": "ok" if data else "no_data",
         "cache_age_seconds": round(age, 1) if age >= 0 else None,
         "last_error": cache.last_error,
         "fetching": cache.fetching,
+        "history_entries": count,
+        "history_earliest": datetime.utcfromtimestamp(earliest).isoformat() if earliest else None,
     }), mimetype="application/json")
 
 
 if __name__ == "__main__":
+    _init_db()
     _load_dashboard()
 
     # Start background data refresh

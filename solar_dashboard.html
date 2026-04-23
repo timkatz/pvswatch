@@ -1,4 +1,4 @@
-<!-- VERSION 3.0, Apr-2026, SunPower Monitor -->
+<!-- VERSION 3.1, Apr-2026, SunPower Monitor -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Solar Monitor</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='30' fill='%23FFD700'/%3E%3Cg transform='translate(50 50)'%3E%3Cpath d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(45)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(90)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(135)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(180)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(225)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(270)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(315)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3C/g%3E%3C/svg%3E">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --bg: #0c1117;
@@ -227,6 +228,48 @@
       .sub-metrics { grid-template-columns: 1fr; }
     }
 
+    /* ── Chart section ────────────────────────────────── */
+    .chart-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      margin-top: 0.5rem;
+    }
+    .chart-tabs {
+      display: flex;
+      gap: 0.35rem;
+      margin-bottom: 0.75rem;
+    }
+    .chart-tab {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 9999px;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+      letter-spacing: 0.02em;
+    }
+    .chart-tab:hover { background: var(--bg-card-hover); color: var(--text); }
+    .chart-tab.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+    }
+    .chart-container {
+      position: relative;
+      height: 240px;
+    }
+    .chart-empty {
+      text-align: center;
+      color: var(--text-dim);
+      padding: 3rem 1rem;
+      font-size: 0.85rem;
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .skeleton { animation: none; }
       * { transition-duration: 0s !important; }
@@ -262,6 +305,23 @@
       <div class="metric"><span class="icon">🏠</span><span class="label">Consumption</span><span class="value" id="v_consumption">—</span></div>
       <div class="metric"><span class="icon" id="netIcon">↔️</span><span class="label">Net Power</span><span class="value" id="v_net">—</span></div>
     </section>
+
+    <div class="section-head">
+      <h2>Power History</h2>
+      <div class="chart-tabs" id="chartTabs">
+        <button class="chart-tab" data-range="1h">1H</button>
+        <button class="chart-tab" data-range="6h">6H</button>
+        <button class="chart-tab active" data-range="24h">24H</button>
+        <button class="chart-tab" data-range="7d">7D</button>
+        <button class="chart-tab" data-range="30d">30D</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-container">
+        <canvas id="powerChart"></canvas>
+      </div>
+      <div class="chart-empty" id="chartEmpty" style="display:none">Collecting data… chart will appear once enough readings are stored.</div>
+    </div>
 
     <div class="section-head"><h2>Voltage</h2></div>
     <div class="sub-metrics" id="voltageRow">
@@ -421,28 +481,42 @@ async function fetchData() {
     document.getElementById('v_pfCons').textContent = pfCdisp;
     document.getElementById('v_freq').textContent = isNaN(freq) ? '—' : freq.toFixed(2) + ' Hz';
 
-    // Inverter panels - detect if per-panel power data is available
+    // Inverter panels — classify each panel's state
     const hasPowerData = inverters.some(i => parseFloat(i.p_3phsum_kw || 0) > 0 || parseFloat(i.vln_3phavg_v || 0) > 0);
-    const allIdle = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() !== 'working');
+    const allWorking = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'working');
+    const allError = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'error');
+    const errorCount = inverters.filter(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'error').length;
 
     document.getElementById('panelCount').textContent = inverters.length + ' panels';
 
     if (inverters.length === 0) {
       document.getElementById('panels').innerHTML =
         '<div class="panel" style="grid-column:1/-1;border-color:var(--accent);background:var(--accent-glow)">No solar panels detected</div>';
-    } else if (!hasPowerData && allIdle) {
-      // Nighttime / no live panel data — show panel list with model info only
-      document.getElementById('panels').innerHTML = inverters.map((inv, i) => {
-        return `<div class="panel">
-          <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
-          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem">${inv.PANEL || inv.MODEL || ''}</div>
-          <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''}</div>
+    } else if (allError && !hasPowerData) {
+      // All panels in error state with no power data — comms/hardware failure
+      document.getElementById('panels').innerHTML =
+        `<div class="panel" style="grid-column:1/-1;border-color:var(--red);background:var(--red-glow);margin-bottom:0.5rem">
+          <div class="watts" style="color:var(--red)">⚠ All ${inverters.length} panels in error</div>
+          <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">No communication with inverters — check PVS gateway connections</div>
+        </div>` +
+        inverters.map(inv => `<div class="panel" style="border-color:rgba(239,68,68,0.25)">
+          <div class="watts" style="color:var(--text-dim)">— W</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || inv.MODEL || ''}</div>
+          <div style="font-size:0.6rem;color:var(--text-dim)">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''} · FW ${inv.SWVER || '?'}</div>
           <div class="status err" style="margin-top:0.2rem">${inv.STATEDESCR || inv.STATE || '—'}</div>
-        </div>`;
-      }).join('');
+        </div>`).join('');
+    } else if (!hasPowerData && allWorking) {
+      // All panels working but no power (nighttime)
+      document.getElementById('panels').innerHTML = inverters.map(inv => `<div class="panel">
+        <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem">${inv.PANEL || inv.MODEL || ''}</div>
+        <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''}</div>
+        <div class="status ok" style="margin-top:0.2rem">Idle</div>
+      </div>`).join('');
     } else {
+      // Mixed or active production — show per-panel detail
       const maxW = Math.max(...inverters.map(i => parseFloat(i.p_3phsum_kw || 0) * 1000));
-      document.getElementById('panels').innerHTML = inverters.map((inv, i) => {
+      document.getElementById('panels').innerHTML = inverters.map(inv => {
         const kw = parseFloat(inv.p_3phsum_kw || 0);
         const w = Math.round(kw * 1000);
         const vac = parseFloat(inv.vln_3phavg_v || 0);
@@ -452,16 +526,20 @@ async function fetchData() {
         const state = (inv.STATEDESCR || inv.STATE || '').toLowerCase();
         const ok = state === 'working';
         const isLow = maxW > 0 && w > 0 && w < 0.85 * maxW;
-        const cls = isLow ? 'panel low-perf' : 'panel';
-        const wattsStr = hasPowerData ? (isNaN(w) ? '—' : w + ' W') : '🌙 Idle';
+        const cls = isLow ? 'panel low-perf' : (!ok ? 'panel' : 'panel');
+        const borderCls = !ok ? ';border-color:rgba(239,68,68,0.25)' : '';
+        let wattsStr;
+        if (ok && w > 0) wattsStr = isNaN(w) ? '—' : w + ' W';
+        else if (ok) wattsStr = '🌙 Idle';
+        else wattsStr = '⚠ Error';
         const detailParts = [];
         if (vac > 0) detailParts.push('AC ' + vac.toFixed(1) + 'V');
         if (vdc > 0) detailParts.push('DC ' + vdc.toFixed(1) + 'V');
         if (adc > 0) detailParts.push(adc.toFixed(2) + 'A');
         if (temp) detailParts.push('🌡️ ' + temp + '°C');
         const detailHtml = detailParts.length ? '<div class="detail">' + detailParts.join(' · ') + '</div>' : '';
-        return `<div class="${cls}">
-          <div class="watts">${wattsStr}</div>
+        return `<div class="${cls}" style="${borderCls}">
+          <div class="watts" ${!ok ? 'style="color:var(--red)"' : ''}>${wattsStr}</div>
           <div class="status ${ok ? 'ok' : 'err'}">${inv.STATEDESCR || inv.STATE || '—'}</div>
           ${detailHtml}
           <div style="font-size:0.6rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || ''}</div>
@@ -513,13 +591,149 @@ async function fetchData() {
 
 function manualRefresh() {
   fetchData();
+  fetchHistory();
   if (refreshTmrID != null) clearInterval(refreshTmrID);
-  refreshTmrID = setInterval(fetchData, REFRESH_INTERVAL);
+  refreshTmrID = setInterval(() => { fetchData(); fetchHistory(); }, REFRESH_INTERVAL);
+}
+
+// ── Chart ────────────────────────────────────────────────────────────
+let powerChart = null;
+let currentRange = '24h';
+let historyFetched = false;
+
+document.getElementById('chartTabs').addEventListener('click', (e) => {
+  if (e.target.classList.contains('chart-tab')) {
+    document.querySelectorAll('#chartTabs .chart-tab').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    currentRange = e.target.dataset.range;
+    fetchHistory();
+  }
+});
+
+async function fetchHistory() {
+  try {
+    const res = await fetch('/history?range=' + currentRange);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderChart(data);
+    historyFetched = true;
+  } catch (e) {
+    console.error('History fetch error:', e);
+  }
+}
+
+function renderChart(data) {
+  const readings = data.readings || [];
+  const canvas = document.getElementById('powerChart');
+  const emptyEl = document.getElementById('chartEmpty');
+
+  if (readings.length < 2) {
+    canvas.style.display = 'none';
+    emptyEl.style.display = 'block';
+    if (powerChart) { powerChart.destroy(); powerChart = null; }
+    return;
+  }
+  canvas.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  const labels = readings.map(r => {
+    const d = new Date(r.bucket * 1000);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  });
+  const prodData = readings.map(r => parseFloat((r.production_kw || 0).toFixed(3)));
+  const consData = readings.map(r => parseFloat((r.consumption_kw || 0).toFixed(3)));
+  const netData = readings.map(r => parseFloat((r.net_kw || 0).toFixed(3)));
+
+  const datasets = [
+    {
+      label: 'Production',
+      data: prodData,
+      borderColor: '#f59e0b',
+      backgroundColor: 'rgba(245, 158, 11, 0.1)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2,
+    },
+    {
+      label: 'Consumption',
+      data: consData,
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2,
+    },
+    {
+      label: 'Net',
+      data: netData,
+      borderColor: '#22c55e',
+      backgroundColor: 'transparent',
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 1.5,
+      borderDash: [4, 3],
+    }
+  ];
+
+  if (powerChart) {
+    powerChart.data.labels = labels;
+    powerChart.data.datasets = datasets;
+    powerChart.update('none');
+  } else {
+    const ctx = canvas.getContext('2d');
+    powerChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            labels: {
+              color: '#7a8a9e',
+              font: { size: 11, weight: '600' },
+              boxWidth: 12,
+              padding: 12,
+            }
+          },
+          tooltip: {
+            backgroundColor: '#1e2a3a',
+            titleColor: '#e4e8ee',
+            bodyColor: '#e4e8ee',
+            borderColor: '#2a3a4e',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} kW`
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: '#7a8a9e', font: { size: 10 }, maxRotation: 0, autoSkipPadding: 15 },
+            grid: { color: 'rgba(30,42,58,0.5)' },
+          },
+          y: {
+            ticks: { color: '#7a8a9e', font: { size: 10 }, callback: v => v + ' kW' },
+            grid: { color: 'rgba(30,42,58,0.5)' },
+          }
+        }
+      }
+    });
+  }
 }
 
 if (!stopFetch) {
   fetchData();
-  refreshTmrID = setInterval(fetchData, REFRESH_INTERVAL);
+  // Delay first history fetch a bit so cache is warm
+  setTimeout(fetchHistory, 3000);
+  refreshTmrID = setInterval(() => { fetchData(); fetchHistory(); }, REFRESH_INTERVAL);
 }
 </script>
 </body>

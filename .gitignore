@@ -24,3 +24,6 @@ Thumbs.db
 *.log
 # Large files
 *.pdf
+
+# Runtime data
+solar_history.db
