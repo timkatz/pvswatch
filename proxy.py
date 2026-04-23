@@ -116,6 +116,13 @@ def _record_reading(devices_json_str, livedata=None):
         consumption = float(livedata.get("site_load_p", 0))
         net = float(livedata.get("net_p", 0))
         lifetime = float(livedata.get("pv_en", 0))
+        # Fresh voltage from transfer switch if available
+        if livedata.get("v12_v") is not None:
+            sys_v = float(livedata["v12_v"])
+        if livedata.get("v1n_v") is not None:
+            l1_v = float(livedata["v1n_v"])
+        if livedata.get("v2n_v") is not None:
+            l2_v = float(livedata["v2n_v"])
     else:
         p_kw = float(meter_p.get("p_3phsum_kw", 0) if meter_p else 0)
         c_kw = float(meter_c.get("p_3phsum_kw", 0) if meter_c else 0)
@@ -271,8 +278,11 @@ def _fetch_vars(sess, ip):
 def _fetch_livedata(sess, ip):
     """Fetch real-time power data from /sys/livedata/ vars.
     This is the fast, fresh endpoint — updated every few seconds.
-    Returns a dict with pv_p, site_load_p, net_p, pv_en, site_load_en, etc."""
+    Also includes /sys/devices/transfer_switch/ for fresh voltage data.
+    Returns a dict with pv_p, site_load_p, net_p, pv_en, site_load_en, etc.
+    plus v1n_v, v2n_v, v12_v from the transfer switch if available."""
     try:
+        # Fetch both livedata and transfer switch voltage in one request
         r = sess.get(
             f"https://{ip}/vars?match=/sys/livedata/&fmt=obj",
             verify=False,
@@ -283,7 +293,44 @@ def _fetch_livedata(sess, ip):
             return {}
         raw = r.json()
         # Strip the /sys/livedata/ prefix
-        return {k.replace("/sys/livedata/", ""): v for k, v in raw.items() if k.startswith("/sys/livedata/")}
+        livedata = {k.replace("/sys/livedata/", ""): v for k, v in raw.items() if k.startswith("/sys/livedata/")}
+
+        # Also fetch transfer switch data for fresh voltage (separate fast request)
+        try:
+            r2 = sess.get(
+                f"https://{ip}/vars?match=/sys/devices/transfer_switch/&fmt=obj",
+                verify=False,
+                timeout=15,
+            )
+            if r2.status_code == 200:
+                ts_data = r2.json()
+                # Extract voltage values and add to livedata
+                for k, v in ts_data.items():
+                    if "v1nV" in k or "v2nV" in k or "v1nGridV" in k or "v2nGridV" in k:
+                        # Map: /sys/devices/transfer_switch/0/v1nV → v1n_v (fresh)
+                        short_key = k.split("/")[-1]
+                        # Convert camelCase to snake_case for dashboard compatibility
+                        key_map = {
+                            "v1nV": "v1n_v",
+                            "v2nV": "v2n_v",
+                            "v1nGridV": "v1n_grid_v",
+                            "v2nGridV": "v2n_grid_v",
+                        }
+                        if short_key in key_map:
+                            livedata[key_map[short_key]] = v
+                # Compute v12_v from v1n + v2n
+                v1n = livedata.get("v1n_v")
+                v2n = livedata.get("v2n_v")
+                if v1n is not None and v2n is not None:
+                    livedata["v12_v"] = float(v1n) + float(v2n)
+                # Also add timestamp
+                ts_eps = ts_data.get("/sys/devices/transfer_switch/0/msmtEps", "")
+                if ts_eps:
+                    livedata["voltage_time"] = ts_eps
+        except Exception as e:
+            logger.debug("Transfer switch voltage fetch error: %s", e)
+
+        return livedata
     except Exception as e:
         logger.warning("Livedata fetch error: %s", e)
         return {}
@@ -407,6 +454,11 @@ def _supplement_devices(devices_json, ip, sess):
             device_list.append(meter_p)
 
     # Second pass: override any supplemented meters with livedata
+    # Extract fresh voltage from livedata (transfer switch data)
+    v12 = livedata.get("v12_v")
+    v1n = livedata.get("v1n_v")
+    v2n = livedata.get("v2n_v")
+
     for d in device_list:
         dtype = d.get("TYPE", "")
         if dtype == "PVS5-METER-P" and livedata:
@@ -418,6 +470,13 @@ def _supplement_devices(devices_json, ip, sess):
             d["p_3phsum_kw"] = str(site_load_p)
             if ld_ts is not None:
                 d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            # Override voltage with fresh transfer switch data
+            if v12 is not None:
+                d["v12_v"] = str(v12)
+            if v1n is not None:
+                d["v1n_v"] = str(v1n)
+            if v2n is not None:
+                d["v2n_v"] = str(v2n)
 
     data["devices"] = device_list
     return json.dumps(data), livedata
