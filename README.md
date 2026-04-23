@@ -29,7 +29,8 @@ All config lives in `.env`:
 | `PVS_PASS` | — | PVS auth password (last 5 chars of internal serial) |
 | `PVS_SERIAL` | — | Full internal serial (for reference) |
 | `DASHBOARD_PORT` | `5001` | Host port for the dashboard |
-| `TIMEOUT_SECS` | `60` | PVS request timeout |
+| `TIMEOUT_SECS` | `120` | PVS request timeout (dl_cgi can be very slow) |
+| `REFRESH_SECS` | `60` | Background refresh interval |
 | `LOG_LEVEL` | `INFO` | Python log level |
 
 ### Finding your PVS internal serial number

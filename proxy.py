@@ -38,10 +38,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 PVS_IP = os.environ.get("PVS_IP", "")
 PVS_USER = os.environ.get("PVS_USER", "ssm_owner")
 PVS_PASS = os.environ.get("PVS_PASS", "")
-TIMEOUT_SECS = int(os.environ.get("TIMEOUT_SECS", "60"))
+TIMEOUT_SECS = int(os.environ.get("TIMEOUT_SECS", "120"))
 PORT = int(os.environ.get("PORT", "5001"))
 HOST = os.environ.get("HOST", "0.0.0.0")
-REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "30"))
+REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "60"))
 
 # Logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -363,36 +363,18 @@ def devices():
     if data:
         return Response(data, mimetype="application/json")
 
-    # No cached data yet — fetch live (first request before background thread)
-    ip = request.args.get("ip") or PVS_IP
-    user = request.args.get("user") or PVS_USER
-    passwd = request.args.get("pass") or PVS_PASS
+    # No cached data yet — wait briefly for background thread
+    # The PVS /devices/list endpoint can take 30-60s to respond,
+    # so instead of blocking here, we wait for the background refresh.
+    for _ in range(90):  # wait up to 90s
+        time.sleep(1)
+        data = cache.get()
+        if data:
+            return Response(data, mimetype="application/json")
+        if cache.last_error and not cache.fetching:
+            return Response(f"PVS error: {cache.last_error}", status=502)
 
-    if not ip:
-        return Response("No data available yet and PVS_IP not configured.", status=503)
-
-    # Fallback: direct fetch for unconfigured or first-request scenarios
-    if user and passwd:
-        sess, err = _get_session(ip, user, passwd)
-        if err:
-            return Response(err, status=403 if "Authentication" in err else 500)
-
-        try:
-            r = sessions[ip].get(f"https://{ip}/cgi-bin/dl_cgi/devices/list", verify=False, timeout=TIMEOUT_SECS)
-        except Exception as e:
-            return Response(f"Fetch error: {e}", status=500)
-
-        if r.status_code in (401, 403):
-            sess, err = _reauth(ip, user, passwd)
-            if err:
-                return Response(err, status=403)
-            r = sessions[ip].get(f"https://{ip}/cgi-bin/dl_cgi/devices/list", verify=False, timeout=TIMEOUT_SECS)
-
-        supplemented = _supplement_devices(r.text, ip, sessions[ip])
-        cache.set(supplemented)
-        return Response(supplemented, mimetype="application/json", status=r.status_code)
-
-    return Response("No data available.", status=503)
+    return Response("Timed out waiting for PVS data.", status=504)
 
 
 # ── Health check ──────────────────────────────────────────────────────
