@@ -16,7 +16,7 @@ Browser → Tailscale (HTTPS :443) → proxy.py (:5002) → PVS gateway (HTTPS :
                                   SQLite (solar_history.db)
 ```
 
-- **Data collection**: A background thread in proxy.py fetches from PVS every `REFRESH_SECS` (300s/5min) and records to SQLite. Runs 24/7 regardless of browser — it's a Python thread in the Flask process, not tied to HTTP connections.
+- **Data collection**: A background thread in proxy.py fetches from PVS every `REFRESH_SECS` (900s/15min) and records to SQLite. Runs 24/7 regardless of browser — it's a Python thread in the Flask process, not tied to HTTP connections. The PVS scan cycle is ~40-60 min, so polling faster gives diminishing returns.
 - **PVS is slow**: The `/cgi-bin/dl_cgi/devices/list` endpoint takes 30-45s to respond. Timeout is 120s. First dashboard load waits up to 90s for cached data.
 - **Network mode**: `network_mode: host` on Unraid for direct LAN access to PVS gateway.
 
@@ -98,7 +98,7 @@ Key variables in `.env`:
 | `PVS_PASS` | — | Last 5 chars of internal serial |
 | `DASHBOARD_PORT` | `5002` | 5002 on your-server (5001 elsewhere) |
 | `TIMEOUT_SECS` | `120` | PVS is slow |
-| `REFRESH_SECS` | `300` | Background refresh interval (5 min) |
+| `REFRESH_SECS` | `900` | Background refresh interval (15 min) |
 | `DATA_DIR` | `./data` | SQLite persistence volume mount |
 | `TS_HOSTNAME` | `sunstrong` | Tailscale hostname |
 
