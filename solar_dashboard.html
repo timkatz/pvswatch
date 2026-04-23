@@ -1,0 +1,526 @@
+<!-- VERSION 3.0, Apr-2026, SunPower Monitor -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Solar Monitor</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='30' fill='%23FFD700'/%3E%3Cg transform='translate(50 50)'%3E%3Cpath d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(45)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(90)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(135)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(180)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(225)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(270)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3Cpath transform='rotate(315)' d='M0 -50 L0 -35' stroke='%23FFA500' stroke-width='5'/%3E%3C/g%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #0c1117;
+      --bg-card: #151d27;
+      --bg-card-hover: #1a2435;
+      --border: #1e2a3a;
+      --text: #e4e8ee;
+      --text-dim: #7a8a9e;
+      --accent: #f59e0b;
+      --accent-glow: rgba(245, 158, 11, 0.15);
+      --green: #22c55e;
+      --green-glow: rgba(34, 197, 94, 0.12);
+      --red: #ef4444;
+      --red-glow: rgba(239, 68, 68, 0.12);
+      --blue: #3b82f6;
+      --blue-glow: rgba(59, 130, 246, 0.12);
+      --cyan: #06b6d4;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Pro Display', -apple-system, system-ui, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .shell { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
+
+    /* ── Header ────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      cursor: pointer;
+      user-select: none;
+    }
+    .logo svg { width: 26px; height: 26px; }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 0.3rem 0.75rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: background 0.3s;
+    }
+    .status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.error { background: var(--red); }
+
+    #warning {
+      text-align: center; color: var(--red); font-size: 0.9rem;
+      font-weight: 600; padding: 0.75rem; background: var(--red-glow);
+      border-radius: var(--radius-sm); margin-top: 1rem; display: none;
+    }
+
+    /* ── Hero metrics ──────────────────────────── */
+    .hero {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+    .metric {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .metric:hover { background: var(--bg-card-hover); border-color: #2a3a4e; }
+    .metric .icon { font-size: 1.1rem; margin-bottom: 0.15rem; }
+    .metric .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+    .metric .value { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+    .metric .unit { font-size: 0.85rem; font-weight: 400; color: var(--text-dim); margin-left: 2px; }
+
+    /* ── Section titles ─────────────────────────── */
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+    .section-head h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      color: var(--text-dim);
+    }
+
+    /* ── Sub metrics row ────────────────────────── */
+    .sub-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+    .sub-metric {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .sub-metric .label { font-size: 0.75rem; color: var(--text-dim); font-weight: 500; }
+    .sub-metric .value { font-size: 1rem; font-weight: 700; }
+
+    /* ── Panel grid ─────────────────────────────── */
+    .panel-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 0.5rem;
+    }
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem;
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .panel:hover { border-color: #2a3a4e; background: var(--bg-card-hover); }
+    .panel .watts { font-size: 1.15rem; font-weight: 800; color: var(--text); margin-bottom: 0.15rem; }
+    .panel .status { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .panel .status.ok { color: var(--green); }
+    .panel .status.err { color: var(--red); }
+    .panel .detail { margin-top: 0.3rem; line-height: 1.5; }
+    .panel.low-perf { border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.05); }
+
+    /* ── System info ────────────────────────────── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.5rem;
+    }
+    .info-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.85rem;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 0.8rem;
+    }
+    .info-item .k { color: var(--text-dim); font-weight: 500; }
+    .info-item .v { font-weight: 700; color: var(--text); }
+
+    /* ── Footer ─────────────────────────────────── */
+    .footer {
+      text-align: center;
+      padding: 2rem 0 1.5rem;
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+    .refresh-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .refresh-btn:hover { background: var(--bg-card-hover); border-color: #2a3a4e; }
+
+    /* ── Loading skeleton ───────────────────────── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+      border-radius: var(--radius-sm);
+      min-height: 1.2em;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* ── Responsive ──────────────────────────────── */
+    @media (max-width: 640px) {
+      .hero { grid-template-columns: repeat(2, 1fr); }
+      .sub-metrics { grid-template-columns: repeat(2, 1fr); }
+      .metric .value { font-size: 1.35rem; }
+      .panel-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+      .info-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 400px) {
+      .hero { grid-template-columns: 1fr 1fr; }
+      .sub-metrics { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton { animation: none; }
+      * { transition-duration: 0s !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="logo" onclick="manualRefresh()" title="Click to refresh">
+        <svg viewBox="0 0 24 24" fill="#f59e0b" xmlns="http://www.w3.org/2000/svg" width="26" height="26">
+          <circle cx="12" cy="12" r="5" fill="#f59e0b"/>
+          <g stroke="#f59e0b" stroke-width="2" stroke-linecap="round">
+            <line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="6.34" y2="6.34"/><line x1="17.66" y1="17.66" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="6.34" y2="17.66"/><line x1="17.66" y1="6.34" x2="19.78" y2="4.22"/>
+          </g>
+        </svg>
+        <span>Solar Monitor</span>
+      </div>
+      <div class="status-pill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting</span>
+      </div>
+    </header>
+
+    <div id="warning"></div>
+
+    <section class="hero" id="heroMetrics">
+      <div class="metric"><span class="icon">☀️</span><span class="label">Lifetime Solar</span><span class="value" id="v_lifetime">—</span></div>
+      <div class="metric"><span class="icon">⚡</span><span class="label">Solar Output</span><span class="value" id="v_production">—</span></div>
+      <div class="metric"><span class="icon">🏠</span><span class="label">Consumption</span><span class="value" id="v_consumption">—</span></div>
+      <div class="metric"><span class="icon" id="netIcon">↔️</span><span class="label">Net Power</span><span class="value" id="v_net">—</span></div>
+    </section>
+
+    <div class="section-head"><h2>Voltage</h2></div>
+    <div class="sub-metrics" id="voltageRow">
+      <div class="sub-metric"><span class="label">System (L1+L2)</span><span class="value" id="v_sysV">—</span></div>
+      <div class="sub-metric"><span class="label">L1</span><span class="value" id="v_l1V">—</span></div>
+      <div class="sub-metric"><span class="label">L2</span><span class="value" id="v_l2V">—</span></div>
+    </div>
+
+    <div class="section-head"><h2>Power Factor</h2></div>
+    <div class="sub-metrics" id="pfRow">
+      <div class="sub-metric"><span class="label">Production</span><span class="value" id="v_pfProd">—</span></div>
+      <div class="sub-metric"><span class="label">Consumption</span><span class="value" id="v_pfCons">—</span></div>
+      <div class="sub-metric"><span class="label">Frequency</span><span class="value" id="v_freq">—</span></div>
+    </div>
+
+    <div class="section-head">
+      <h2>Inverter Panels</h2>
+      <span id="panelCount" style="font-size:0.75rem;color:var(--text-dim)"></span>
+    </div>
+    <div class="panel-grid" id="panels"></div>
+
+    <div class="section-head"><h2>System Information</h2></div>
+    <div class="info-grid" id="sysInfo"></div>
+
+    <div class="footer">
+      <span id="updated">Waiting for data…</span>
+      <br><br>
+      <button class="refresh-btn" onclick="manualRefresh()">↻ Refresh Now</button>
+      <br><br>
+      Solar Monitor v3.0
+    </div>
+  </div>
+
+<script>
+const REFRESH_INTERVAL = 20 * 1000;
+const _urlParams = new URLSearchParams(window.location.search);
+const _serverConfig = window.__SOLAR_CONFIG__ || {};
+const params = new URLSearchParams();
+for (const [k, v] of _urlParams.entries()) params.set(k, v);
+for (const [k, v] of Object.entries(_serverConfig)) params.set(k, v);
+
+let stopFetch = false;
+let refreshTmrID = null;
+let firstLoad = true;
+
+if ((params.get('user') || params.get('pass')) && !params.get('ip')) {
+  document.getElementById('warning').textContent = "⚠ Credentials provided without IP address.";
+  document.getElementById('warning').style.display = 'block';
+  stopFetch = true;
+}
+
+function buildProxyUrl() {
+  let url = '/devices';
+  const qs = new URLSearchParams();
+  if (params.get('ip')) qs.set('ip', params.get('ip'));
+  if (params.get('user')) qs.set('user', params.get('user'));
+  if (params.get('pass')) qs.set('pass', params.get('pass'));
+  const q = qs.toString();
+  return q ? url + '?' + q : url;
+}
+
+function getIpFromUrl(defaultIp) {
+  for (const [key, value] of params.entries()) {
+    if (key.toLowerCase() === 'ip' && value) return value;
+  }
+  return defaultIp;
+}
+
+function setStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  label.textContent = text;
+  dot.className = 'status-dot';
+  if (state === 'live') dot.classList.add('live');
+  else if (state === 'error') dot.classList.add('error');
+}
+
+function fmt(n, decimals) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Number(n).toFixed(decimals);
+}
+
+async function fetchData() {
+  if (stopFetch) return;
+  setStatus('live' , firstLoad ? 'Loading' : 'Refreshing');
+
+  const URL_NO_AUTH = "http://" + getIpFromUrl("172.27.153.1") + "/cgi-bin/dl_cgi/devices/list";
+  const URL_AUTH = buildProxyUrl();
+  let res = null;
+  let urlStr = "";
+
+  try {
+    if (!params.get('user') && !params.get('pass')) {
+      urlStr = URL_NO_AUTH;
+      res = await fetch(URL_NO_AUTH);
+    } else {
+      urlStr = URL_AUTH;
+      res = await fetch(URL_AUTH, { method: 'GET' });
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(()=>'');
+      if (res.status === 403 && !(params.get('user') && params.get('pass'))) {
+        document.getElementById('warning').textContent = "⚠ Your PVS firmware requires authentication.";
+        document.getElementById('warning').style.display = 'block';
+        setStatus('error', 'Auth Required');
+        stopFetch = true; return;
+      }
+      if (res.status === 403 && (params.get('user') && params.get('pass'))) {
+        document.getElementById('warning').textContent = "⚠ Authentication failed. Check credentials.";
+        document.getElementById('warning').style.display = 'block';
+        setStatus('error', 'Auth Failed');
+        stopFetch = true; return;
+      }
+      setStatus('error', 'HTTP ' + res.status);
+      document.getElementById('updated').textContent = 'Error: HTTP ' + res.status + ' — ' + text.substring(0, 100);
+      return;
+    }
+
+    const data = await res.json();
+    const devices = data.devices || [];
+
+    const meterP = devices.find(d => d.TYPE === "PVS5-METER-P");
+    const meterC = devices.find(d => d.TYPE === "PVS5-METER-C");
+    const gateway = devices.find(d => d.DEVICE_TYPE === "PVS");
+    const inverters = devices.filter(d => d.TYPE === "SOLARBRIDGE");
+
+    const pKw = parseFloat(meterP?.p_3phsum_kw || 0);
+    const cKw = parseFloat(meterC?.p_3phsum_kw || 0);
+    const prodKw = pKw <= 0.005 ? 0 : pKw;
+    const consKw = cKw <= 0.005 ? 0 : cKw;
+    const netKw = prodKw - consKw;
+    const lifetimeKwh = parseFloat(meterP?.net_ltea_3phsum_kwh || 0);
+    const sysV = parseFloat(meterC?.v12_v || 0);
+    const l1V = parseFloat(meterC?.v1n_v || 0);
+    const l2V = parseFloat(meterC?.v2n_v || 0);
+    const pfP = parseFloat(meterP?.tot_pf_rto || 0);
+    const pfC = parseFloat(meterC?.tot_pf_rto || 0);
+    const freq = parseFloat(meterC?.freq_hz || 0);
+
+    // Hero metrics
+    document.getElementById('v_lifetime').innerHTML = fmt(lifetimeKwh, 1) + '<span class="unit"> kWh</span>';
+    document.getElementById('v_production').innerHTML = fmt(prodKw, 2) + '<span class="unit"> kW</span>';
+    document.getElementById('v_consumption').innerHTML = fmt(consKw, 2) + '<span class="unit"> kW</span>';
+    document.getElementById('v_net').innerHTML = fmt(netKw, 2) + '<span class="unit"> kW</span>';
+    document.getElementById('v_net').style.color = netKw >= 0 ? 'var(--green)' : 'var(--red)';
+
+    // Voltage
+    document.getElementById('v_sysV').textContent = fmt(sysV, 1) + ' V';
+    document.getElementById('v_l1V').textContent = fmt(l1V, 1) + ' V';
+    document.getElementById('v_l2V').innerHTML = fmt(l2V, 1) + ' V';
+
+    // Power factor
+    const pfPdisp = isNaN(pfP) || Math.abs(pfP) < 0.001 ? '—' : (pfP * 100).toFixed(1) + '%';
+    const pfCdisp = isNaN(pfC) ? '—' : (pfC * 100).toFixed(1) + '%';
+    document.getElementById('v_pfProd').textContent = pfPdisp;
+    document.getElementById('v_pfCons').textContent = pfCdisp;
+    document.getElementById('v_freq').textContent = isNaN(freq) ? '—' : freq.toFixed(2) + ' Hz';
+
+    // Inverter panels - detect if per-panel power data is available
+    const hasPowerData = inverters.some(i => parseFloat(i.p_3phsum_kw || 0) > 0 || parseFloat(i.vln_3phavg_v || 0) > 0);
+    const allIdle = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() !== 'working');
+
+    document.getElementById('panelCount').textContent = inverters.length + ' panels';
+
+    if (inverters.length === 0) {
+      document.getElementById('panels').innerHTML =
+        '<div class="panel" style="grid-column:1/-1;border-color:var(--accent);background:var(--accent-glow)">No solar panels detected</div>';
+    } else if (!hasPowerData && allIdle) {
+      // Nighttime / no live panel data — show panel list with model info only
+      document.getElementById('panels').innerHTML = inverters.map((inv, i) => {
+        return `<div class="panel">
+          <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem">${inv.PANEL || inv.MODEL || ''}</div>
+          <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''}</div>
+          <div class="status err" style="margin-top:0.2rem">${inv.STATEDESCR || inv.STATE || '—'}</div>
+        </div>`;
+      }).join('');
+    } else {
+      const maxW = Math.max(...inverters.map(i => parseFloat(i.p_3phsum_kw || 0) * 1000));
+      document.getElementById('panels').innerHTML = inverters.map((inv, i) => {
+        const kw = parseFloat(inv.p_3phsum_kw || 0);
+        const w = Math.round(kw * 1000);
+        const vac = parseFloat(inv.vln_3phavg_v || 0);
+        const vdc = parseFloat(inv.v_mppt1_v || 0);
+        const adc = parseFloat(inv.i_mppt1_a || 0);
+        const temp = parseFloat(inv.t_htsnk_degc || 0);
+        const state = (inv.STATEDESCR || inv.STATE || '').toLowerCase();
+        const ok = state === 'working';
+        const isLow = maxW > 0 && w > 0 && w < 0.85 * maxW;
+        const cls = isLow ? 'panel low-perf' : 'panel';
+        const wattsStr = hasPowerData ? (isNaN(w) ? '—' : w + ' W') : '🌙 Idle';
+        const detailParts = [];
+        if (vac > 0) detailParts.push('AC ' + vac.toFixed(1) + 'V');
+        if (vdc > 0) detailParts.push('DC ' + vdc.toFixed(1) + 'V');
+        if (adc > 0) detailParts.push(adc.toFixed(2) + 'A');
+        if (temp) detailParts.push('🌡️ ' + temp + '°C');
+        const detailHtml = detailParts.length ? '<div class="detail">' + detailParts.join(' · ') + '</div>' : '';
+        return `<div class="${cls}">
+          <div class="watts">${wattsStr}</div>
+          <div class="status ${ok ? 'ok' : 'err'}">${inv.STATEDESCR || inv.STATE || '—'}</div>
+          ${detailHtml}
+          <div style="font-size:0.6rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || ''}</div>
+        </div>`;
+      }).join('');
+    }
+
+    // System info
+    const info = [
+      ['Gateway', gateway?.MODEL || '—'],
+      ['IP', params.get('ip') || '—'],
+      ['Serial', gateway?.SERIAL || '—'],
+      ['HW', gateway?.HWVER || '—'],
+      ['Firmware', gateway?.SWVER || '—'],
+      ['State', gateway?.STATE || '—'],
+      ['Memory', gateway?.dl_mem_used ? gateway.dl_mem_used + ' KiB' : '—'],
+      ['Panel ID', gateway?.panid || '—'],
+      ['CT Type', meterC?.subtype || '—'],
+    ];
+    document.getElementById('sysInfo').innerHTML = info.map(([k, v]) =>
+      `<div class="info-item"><span class="k">${k}</span><span class="v">${v}</span></div>`
+    ).join('');
+
+    // Timestamp
+    const ut = meterP?.CURTIME || '';
+    if (ut) {
+      const p = ut.split(',');
+      if (p.length >= 6) {
+        const d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2], +p[3], +p[4], +p[5]));
+        document.getElementById('updated').textContent = 'Updated ' + d.toLocaleString();
+      } else {
+        document.getElementById('updated').textContent = 'Updated ' + ut;
+      }
+    } else {
+      document.getElementById('updated').textContent = 'Updated just now';
+    }
+
+    setStatus('live', 'Live');
+    document.getElementById('warning').style.display = 'none';
+    firstLoad = false;
+
+  } catch (err) {
+    setStatus('error', 'Failed');
+    document.getElementById('warning').textContent = '⚠ ' + err.message;
+    document.getElementById('warning').style.display = 'block';
+    document.getElementById('updated').textContent = 'Connection error';
+  }
+}
+
+function manualRefresh() {
+  fetchData();
+  if (refreshTmrID != null) clearInterval(refreshTmrID);
+  refreshTmrID = setInterval(fetchData, REFRESH_INTERVAL);
+}
+
+if (!stopFetch) {
+  fetchData();
+  refreshTmrID = setInterval(fetchData, REFRESH_INTERVAL);
+}
+</script>
+</body>
+</html>

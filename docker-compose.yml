@@ -1,0 +1,17 @@
+services:
+  sunpower-monitor:
+    build: .
+    container_name: sunpower-monitor
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-5001}:${DASHBOARD_PORT:-5001}"
+    environment:
+      - PVS_IP=${PVS_IP:-}
+      - PVS_USER=${PVS_USER:-ssm_owner}
+      - PVS_PASS=${PVS_PASS:-}
+      - PORT=${DASHBOARD_PORT:-5001}
+      - TIMEOUT_SECS=${TIMEOUT_SECS:-60}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # If PVS is on the host LAN and container can't reach it,
+    # comment out "ports" above and uncomment "network_mode" below.
+    # network_mode: host
