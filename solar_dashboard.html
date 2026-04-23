@@ -482,16 +482,33 @@ async function fetchData() {
     document.getElementById('v_freq').textContent = isNaN(freq) ? '—' : freq.toFixed(2) + ' Hz';
 
     // Inverter panels — classify each panel's state
-    const hasPowerData = inverters.some(i => parseFloat(i.p_3phsum_kw || 0) > 0 || parseFloat(i.vln_3phavg_v || 0) > 0);
+    // SunPower PVS6 quirk: panels report "Error" at night (powerline comms
+    // need DC power). Detect nighttime: all errors + near-zero production.
+    const hasPowerData = inverters.some(i => parseFloat(i.p_3phsum_kw || 0) > 0.001 || parseFloat(i.vln_3phavg_v || 0) > 0.1);
     const allWorking = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'working');
     const allError = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'error');
     const errorCount = inverters.filter(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'error').length;
+    const prodKwAbs = Math.abs(prodKw);
+    const isNighttime = allError && prodKwAbs < 0.05 && !hasPowerData;
 
     document.getElementById('panelCount').textContent = inverters.length + ' panels';
 
     if (inverters.length === 0) {
       document.getElementById('panels').innerHTML =
         '<div class="panel" style="grid-column:1/-1;border-color:var(--accent);background:var(--accent-glow)">No solar panels detected</div>';
+    } else if (isNighttime) {
+      // Nighttime: all panels report "Error" because SunPower PVS6 powerline
+      // comms don't work when panels aren't producing. This is normal.
+      document.getElementById('panels').innerHTML =
+        `<div class="panel" style="grid-column:1/-1;border-color:var(--blue);background:var(--blue-glow);margin-bottom:0.5rem">
+          <div class="watts" style="color:var(--cyan)">🌙 ${inverters.length} panels — nighttime idle</div>
+          <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">Panels are offline (normal after dark — powerline comms require daylight)</div>
+        </div>` +
+        inverters.map(inv => `<div class="panel">
+          <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
+          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || inv.MODEL || ''}</div>
+          <div style="font-size:0.6rem;color:var(--text-dim)">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''} · FW ${inv.SWVER || '?'}</div>
+        </div>`).join('');
     } else if (allError && !hasPowerData) {
       // All panels in error state with no power data — comms/hardware failure
       document.getElementById('panels').innerHTML =
@@ -524,13 +541,17 @@ async function fetchData() {
         const adc = parseFloat(inv.i_mppt1_a || 0);
         const temp = parseFloat(inv.t_htsnk_degc || 0);
         const state = (inv.STATEDESCR || inv.STATE || '').toLowerCase();
+        const isNoop = (inv.OPERATION || '').toLowerCase() === 'noop';
         const ok = state === 'working';
+        // During daytime production: an "error" panel with noop is a real issue
+        // At night/low production: same state is just idle
+        const isLikelyIdle = !ok && isNoop && prodKwAbs < 0.05;
         const isLow = maxW > 0 && w > 0 && w < 0.85 * maxW;
-        const cls = isLow ? 'panel low-perf' : (!ok ? 'panel' : 'panel');
-        const borderCls = !ok ? ';border-color:rgba(239,68,68,0.25)' : '';
+        const cls = isLow ? 'panel low-perf' : (isLikelyIdle ? 'panel' : 'panel');
+        const borderCls = (!ok && !isLikelyIdle) ? ';border-color:rgba(239,68,68,0.25)' : '';
         let wattsStr;
         if (ok && w > 0) wattsStr = isNaN(w) ? '—' : w + ' W';
-        else if (ok) wattsStr = '🌙 Idle';
+        else if (ok || isLikelyIdle) wattsStr = '🌙 Idle';
         else wattsStr = '⚠ Error';
         const detailParts = [];
         if (vac > 0) detailParts.push('AC ' + vac.toFixed(1) + 'V');
@@ -539,8 +560,8 @@ async function fetchData() {
         if (temp) detailParts.push('🌡️ ' + temp + '°C');
         const detailHtml = detailParts.length ? '<div class="detail">' + detailParts.join(' · ') + '</div>' : '';
         return `<div class="${cls}" style="${borderCls}">
-          <div class="watts" ${!ok ? 'style="color:var(--red)"' : ''}>${wattsStr}</div>
-          <div class="status ${ok ? 'ok' : 'err'}">${inv.STATEDESCR || inv.STATE || '—'}</div>
+          <div class="watts" ${(!ok && !isLikelyIdle) ? 'style="color:var(--red)"' : ''}>${wattsStr}</div>
+          <div class="status ${ok ? 'ok' : (isLikelyIdle ? 'ok' : 'err')}">${isLikelyIdle ? 'Idle' : (inv.STATEDESCR || inv.STATE || '—')}</div>
           ${detailHtml}
           <div style="font-size:0.6rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || ''}</div>
         </div>`;

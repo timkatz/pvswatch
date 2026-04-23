@@ -1,17 +1,68 @@
+name: sunstrong
+
 services:
-  sunpower-monitor:
+  monitor:
     build: .
-    container_name: sunpower-monitor
+    image: sunstrong:latest
+    container_name: sunstrong
     restart: unless-stopped
-    ports:
-      - "${DASHBOARD_PORT:-5001}:${DASHBOARD_PORT:-5001}"
+    network_mode: host
     environment:
-      - PVS_IP=${PVS_IP:-}
+      - PVS_IP=${PVS_IP:-192.168.1.50}
       - PVS_USER=${PVS_USER:-ssm_owner}
       - PVS_PASS=${PVS_PASS:-}
       - PORT=${DASHBOARD_PORT:-5001}
-      - TIMEOUT_SECS=${TIMEOUT_SECS:-60}
+      - TIMEOUT_SECS=${TIMEOUT_SECS:-120}
+      - REFRESH_SECS=${REFRESH_SECS:-60}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    # If PVS is on the host LAN and container can't reach it,
-    # comment out "ports" above and uncomment "network_mode" below.
-    # network_mode: host
+      - DB_PATH=/data/solar_history.db
+    volumes:
+      - ${DATA_DIR:-/mnt/user/appdata/sunstrong/data}:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  tailscale:
+    image: tailscale/tailscale:stable
+    container_name: sunstrong-tailscale
+    restart: unless-stopped
+    depends_on:
+      monitor:
+        condition: service_healthy
+    network_mode: service:monitor
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      TS_HOSTNAME: ${TS_HOSTNAME:-sunstrong}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
+    volumes:
+      - ${TS_STATE_DIR:-/mnt/user/appdata/sunstrong/tailscale-state}:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    healthcheck:
+      test: ["CMD", "sh", "-c", "tailscale status --json 2>/dev/null | grep -qE '\"Online\"\\s*:\\s*true'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command: |
+      sh -lc '
+        set -e
+        tailscaled --state=/var/lib/tailscale/tailscaled.state &
+        sleep 3
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          if [ -n "$$TS_AUTHKEY" ]; then
+            tailscale up --authkey="$$TS_AUTHKEY" --hostname="$$TS_HOSTNAME" --accept-dns=true && break
+          else
+            tailscale up --hostname="$$TS_HOSTNAME" --accept-dns=true && break
+          fi
+          echo "tailscale up failed (attempt $$i/12), retrying in 5s..."
+          sleep 5
+        done
+        tailscale serve --bg --https=443 http://127.0.0.1:5001
+        tail -f /dev/null
+      '
