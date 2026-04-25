@@ -121,9 +121,39 @@ def _init_db():
         logger.info("Migrated panel_readings: added column lifetime_kwh")
     except sqlite3.OperationalError:
         pass
+    # Cumulative-counter cleanup (#1): legacy rows stored 0 when the source
+    # value was missing (panel in nighttime error/noop state, or livedata
+    # absent). 0 is "no data," not a real reading — convert to NULL so MIN/MAX
+    # skip the rows. Idempotent; no-op once the data is clean.
+    cleanups = (
+        ("panel_readings", "lifetime_kwh"),
+        ("readings", "lifetime_kwh"),
+        ("readings", "home_lifetime_kwh"),
+        ("readings", "grid_lifetime_kwh"),
+        ("readings", "battery_lifetime_kwh"),
+    )
+    for table, col in cleanups:
+        try:
+            r = c.execute(f"UPDATE {table} SET {col} = NULL WHERE {col} = 0")
+            if r.rowcount:
+                logger.info("Cleaned %s zero rows in %s.%s → NULL", r.rowcount, table, col)
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
     logger.info("History database initialized at %s", DB_PATH)
+
+
+def _cumulative(v):
+    """Coerce a cumulative-counter value (kWh, etc.) to float, returning None
+    for missing/zero. A 0 here almost always means "no data this poll" (e.g.
+    panel in nighttime error/noop state) rather than a real zero — see #1.
+    Storing None instead lets SQL MIN/MAX skip the rows naturally."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
 
 
 def _record_reading(devices_json_str, livedata=None):
@@ -144,16 +174,16 @@ def _record_reading(devices_json_str, livedata=None):
     battery_kw = float(livedata.get("ess_p", 0)) if livedata else 0
     battery_soc = float(livedata.get("soc", 0)) if livedata else 0
     backup_min = float(livedata.get("backupTimeRemaining", 0)) if livedata else 0
-    battery_lifetime_kwh = float(livedata.get("ess_en", 0)) if livedata else 0
-    home_lifetime_kwh = float(livedata.get("site_load_en", 0)) if livedata else 0
-    grid_lifetime_kwh = float(livedata.get("net_en", 0)) if livedata else 0
+    battery_lifetime_kwh = _cumulative(livedata.get("ess_en")) if livedata else None
+    home_lifetime_kwh = _cumulative(livedata.get("site_load_en")) if livedata else None
+    grid_lifetime_kwh = _cumulative(livedata.get("net_en")) if livedata else None
 
     # Prefer livedata for real-time power, fall back to meter values
     if livedata:
         production = float(livedata.get("pv_p", 0))
         consumption = float(livedata.get("site_load_p", 0))
         net = float(livedata.get("net_p", 0))
-        lifetime = float(livedata.get("pv_en", 0))
+        lifetime = _cumulative(livedata.get("pv_en"))
         # Fresh voltage from transfer switch if available
         if livedata.get("v12_v") is not None:
             sys_v = float(livedata["v12_v"])
@@ -167,7 +197,7 @@ def _record_reading(devices_json_str, livedata=None):
         production = p_kw if p_kw > 0.005 else 0
         consumption = c_kw if c_kw > 0.005 else 0
         net = production - consumption
-        lifetime = float(meter_p.get("net_ltea_3phsum_kwh", 0) if meter_p else 0)
+        lifetime = _cumulative(meter_p.get("net_ltea_3phsum_kwh") if meter_p else None)
     sys_v = float(meter_c.get("v12_v", 0) if meter_c else 0)
     l1_v = float(meter_c.get("v1n_v", 0) if meter_c else 0)
     l2_v = float(meter_c.get("v2n_v", 0) if meter_c else 0)
@@ -207,7 +237,7 @@ def _record_reading(devices_json_str, livedata=None):
                 i_dc = float(inv.get("i_mppt1_a", 0) or 0)
                 v_ac = float(inv.get("vln_3phavg_v", 0) or 0)
                 temp = float(inv.get("t_htsnk_degc", 0) or 0)
-                lifetime = float(inv.get("ltea_3phsum_kwh", 0) or 0)
+                lifetime = _cumulative(inv.get("ltea_3phsum_kwh"))
                 c.execute("""INSERT OR REPLACE INTO panel_readings
                     (ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c, lifetime_kwh)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -887,7 +917,7 @@ def history():
                 AVG(net_kw) as net_kw,
                 AVG(battery_kw) as battery_kw,
                 AVG(battery_soc) as battery_soc,
-                MAX(lifetime_kwh) as lifetime_kwh,
+                MAX(NULLIF(lifetime_kwh, 0)) as lifetime_kwh,
                 AVG(sys_v) as sys_v,
                 AVG(l1_v) as l1_v,
                 AVG(l2_v) as l2_v,
@@ -910,8 +940,8 @@ def history():
         # integration, which is lossy under high variance (e.g. outage spikes).
         totals_row = c.execute("""
             SELECT
-                MAX(lifetime_kwh) - MIN(lifetime_kwh) as solar_from_lifetime,
-                MAX(home_lifetime_kwh) - MIN(home_lifetime_kwh) as home_from_lifetime,
+                MAX(NULLIF(lifetime_kwh, 0)) - MIN(NULLIF(lifetime_kwh, 0)) as solar_from_lifetime,
+                MAX(NULLIF(home_lifetime_kwh, 0)) - MIN(NULLIF(home_lifetime_kwh, 0)) as home_from_lifetime,
                 AVG(production_kw) as avg_prod,
                 AVG(consumption_kw) as avg_cons,
                 AVG(net_kw) as avg_net,
@@ -919,12 +949,12 @@ def history():
                 MIN(ts) as t_start,
                 MAX(ts) as t_end,
                 COUNT(*) as n,
-                COUNT(lifetime_kwh) as n_solar_lt,
-                COUNT(home_lifetime_kwh) as n_home_lt,
-                MIN(CASE WHEN lifetime_kwh IS NOT NULL THEN ts END) as solar_lt_t_start,
-                MAX(CASE WHEN lifetime_kwh IS NOT NULL THEN ts END) as solar_lt_t_end,
-                MIN(CASE WHEN home_lifetime_kwh IS NOT NULL THEN ts END) as home_lt_t_start,
-                MAX(CASE WHEN home_lifetime_kwh IS NOT NULL THEN ts END) as home_lt_t_end
+                COUNT(NULLIF(lifetime_kwh, 0)) as n_solar_lt,
+                COUNT(NULLIF(home_lifetime_kwh, 0)) as n_home_lt,
+                MIN(CASE WHEN lifetime_kwh IS NOT NULL AND lifetime_kwh != 0 THEN ts END) as solar_lt_t_start,
+                MAX(CASE WHEN lifetime_kwh IS NOT NULL AND lifetime_kwh != 0 THEN ts END) as solar_lt_t_end,
+                MIN(CASE WHEN home_lifetime_kwh IS NOT NULL AND home_lifetime_kwh != 0 THEN ts END) as home_lt_t_start,
+                MAX(CASE WHEN home_lifetime_kwh IS NOT NULL AND home_lifetime_kwh != 0 THEN ts END) as home_lt_t_end
             FROM readings WHERE ts > ? AND ts <= ?
         """, (cutoff, end_ts)).fetchone()
 
@@ -1085,8 +1115,8 @@ def panel_history(serial):
                 {bucket_expr} as bucket,
                 AVG(watts) as avg_w,
                 COUNT(*) as samples,
-                MAX(lifetime_kwh) as lifetime_max,
-                MIN(lifetime_kwh) as lifetime_min,
+                MAX(NULLIF(lifetime_kwh, 0)) as lifetime_max,
+                MIN(NULLIF(lifetime_kwh, 0)) as lifetime_min,
                 AVG(v_dc) as avg_v_dc,
                 AVG(temp_c) as avg_temp_c
             FROM panel_readings
