@@ -46,7 +46,7 @@ Commands:
   logs      Follow container logs
   url       Print the dashboard URL
   open      Open the dashboard in your browser
-  update    Pull latest dashboard files from GitHub and rebuild
+  update    git pull origin and rebuild the container
   help      Show this help message
 
 All config is read from .env. Key variables:
@@ -126,28 +126,17 @@ open_dashboard() {
 }
 
 update_project() {
-    echo "📥 Updating dashboard files from GitHub..."
-    REMOTE="https://raw.githubusercontent.com/thomastech/SunPower-Web-Monitor/main/html"
+    if [[ ! -d "$SCRIPT_DIR/.git" ]]; then
+        echo "❌ Not a git checkout — 'update' only works when this repo was cloned with git."
+        echo "   Pull the latest source manually, then run: $(basename "$0") restart"
+        exit 1
+    fi
 
-    curl -fsSL "$REMOTE/solar_dashboard.html" -o solar_dashboard.html.new \
-        && mv solar_dashboard.html.new solar_dashboard.html \
-        && echo "✅ solar_dashboard.html updated" \
-        || { echo "❌ Failed to update solar_dashboard.html"; exit 1; }
-
-    # Don't overwrite our customized proxy.py — show a diff instead
-    if curl -fsSL "$REMOTE/proxy.py" -o proxy.py.upstream 2>/dev/null; then
-        if diff -q proxy.py proxy.py.upstream &>/dev/null; then
-            echo "✅ proxy.py is already up to date"
-            rm -f proxy.py.upstream
-        else
-            echo "⚠️  proxy.py has upstream changes (not auto-applied):"
-            echo "   diff proxy.py proxy.py.upstream"
-            echo "   Review and merge manually if desired."
-            echo "   Remove proxy.py.upstream when done."
-        fi
-    else
-        echo "⚠️  Could not fetch upstream proxy.py"
-        rm -f proxy.py.upstream
+    echo "📥 Pulling latest changes from origin..."
+    if ! git -C "$SCRIPT_DIR" pull --ff-only; then
+        echo "❌ git pull failed (uncommitted local changes? non-fast-forward?)."
+        echo "   Resolve the conflict, then run: $(basename "$0") restart"
+        exit 1
     fi
 
     echo ""

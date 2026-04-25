@@ -184,7 +184,7 @@ status    Show container status and recent logs
 logs      Follow container logs
 url       Print the dashboard URL
 open      Open the dashboard in your browser
-update    Pull upstream dashboard changes from thomastech/SunPower-Web-Monitor and rebuild
+update    git pull origin and rebuild the container
 help      Show this help
 ```
 
@@ -211,7 +211,7 @@ Increase `REFRESH_SECS` in `.env` and restart. The default is 5 min, which is co
 
 ## Credits
 
-The original PVS dashboard concept was popularized by **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)**, and `./sunpower.sh update` can pull upstream dashboard changes. This project diverges significantly (rewritten Flask proxy, SQLite history, SunVault battery support, energy-flow diagram, period-totals API, etc.) but the lineage is acknowledged.
+The original PVS dashboard concept was popularized by **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)** — early versions of this project started from that codebase. SunStrong has since diverged significantly (rewritten Flask proxy, SQLite history, SunVault battery support, energy-flow diagram, period-totals API, per-panel drilldown, etc.) but the lineage is acknowledged.
 
 Reverse-engineering of PVS endpoints draws on years of community work in the [SunPower local-API discussions](https://github.com/scott1howard-cba/SunPower-PVS-Exporter/) and various forum threads.
 
