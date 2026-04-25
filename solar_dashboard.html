@@ -454,10 +454,14 @@
        chart-mode (POWER/ENERGY). Explicit dimensions defeat browser
        button user-agent style drift. */
     .pill-btn {
+      -webkit-appearance: none;
+      appearance: none;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 28px;
+      height: 28px !important;
+      min-height: 28px;
+      max-height: 28px;
       padding: 0 0.75rem;
       font-family: inherit;
       font-size: 0.75rem;
@@ -506,7 +510,7 @@
       .chart-tabs::-webkit-scrollbar { display: none; }
       .chart-tabs .pill-btn { flex: 0 0 auto; }
       .chart-modes + .chart-tabs { margin-left: 0; padding-left: 0.5rem; }
-      .pill-btn { height: 30px; padding: 0 0.7rem; font-size: 0.72rem; }
+      .pill-btn { height: 30px !important; min-height: 30px; max-height: 30px; padding: 0 0.7rem; font-size: 0.72rem; }
     }
 
     /* ── Live power-flow visualization ──────────── */
