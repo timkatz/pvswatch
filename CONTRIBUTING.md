@@ -41,10 +41,15 @@ you'll spend most of your time in:
 
 ## Releasing
 
-Releases are cut as GitHub Releases against semver tags (`v1.2.3`). Pushing a
-tag triggers `.github/workflows/docker-publish.yml`, which builds and pushes
-the multi-arch container image to `ghcr.io/<owner>/pvswatch` with `latest`,
-`v1.2.3`, `1.2`, and `1` tags.
+Releases use **CalVer** (calendar versioning): `YYYY.MM.DD` for the first
+release of a day, `YYYY.MM.DD.N` for subsequent releases that same day
+(e.g., `2026.04.25.1`, `2026.04.25.2`).
+
+Pushing a CalVer tag triggers `.github/workflows/docker-publish.yml`,
+which builds and pushes the multi-arch container image to
+`ghcr.io/<owner>/pvswatch`, tagged with the full version, the date
+roll-up, the year, and `latest` (e.g. `2026.04.25.3`, `2026.04.25`,
+`2026`, `latest`).
 
 ## Code of conduct
 
