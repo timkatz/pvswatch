@@ -99,11 +99,16 @@ def _init_db():
     )""")
     # Idempotent migrations.
     # battery_*  added 2026-04-25 — sign: battery_kw > 0 = discharging.
+    # home_lifetime_kwh / grid_lifetime_kwh added 2026-04-25 — cumulative
+    # counters from livedata.site_load_en / net_en. Used for accurate period
+    # totals (delta over window) instead of AVG×hours integration.
     for col, sql_type in (
         ("battery_kw", "REAL"),
         ("battery_soc", "REAL"),
         ("backup_min", "REAL"),
         ("battery_lifetime_kwh", "REAL"),
+        ("home_lifetime_kwh", "REAL"),
+        ("grid_lifetime_kwh", "REAL"),
     ):
         try:
             c.execute(f"ALTER TABLE readings ADD COLUMN {col} {sql_type}")
@@ -140,6 +145,8 @@ def _record_reading(devices_json_str, livedata=None):
     battery_soc = float(livedata.get("soc", 0)) if livedata else 0
     backup_min = float(livedata.get("backupTimeRemaining", 0)) if livedata else 0
     battery_lifetime_kwh = float(livedata.get("ess_en", 0)) if livedata else 0
+    home_lifetime_kwh = float(livedata.get("site_load_en", 0)) if livedata else 0
+    grid_lifetime_kwh = float(livedata.get("net_en", 0)) if livedata else 0
 
     # Prefer livedata for real-time power, fall back to meter values
     if livedata:
@@ -182,12 +189,14 @@ def _record_reading(devices_json_str, livedata=None):
                 (ts, production_kw, consumption_kw, net_kw, lifetime_kwh,
                  sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
                  num_panels, panels_working, panels_error,
-                 battery_kw, battery_soc, backup_min, battery_lifetime_kwh)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
+                 home_lifetime_kwh, grid_lifetime_kwh)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, production, consumption, net, lifetime,
                  sys_v, l1_v, l2_v, freq, pf_p, pf_c,
                  num_panels, panels_working, panels_error,
-                 battery_kw, battery_soc, backup_min, battery_lifetime_kwh))
+                 battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
+                 home_lifetime_kwh, grid_lifetime_kwh))
             # Per-panel data
             for inv in inverters:
                 serial = inv.get("SERIAL", "unknown")
@@ -306,6 +315,23 @@ def _fetch_vars(sess, ip):
         return r.json()
     except Exception as e:
         logger.warning("Varserver fetch error: %s", e)
+        return {}
+
+
+def _fetch_ess_vars(sess, ip):
+    """Fetch just /sys/devices/ess/ vars (per-unit battery detail).
+    Lightweight — ~40 keys total for a 2-unit SunVault."""
+    try:
+        r = sess.get(
+            f"https://{ip}/vars?match=/sys/devices/ess/&fmt=obj",
+            verify=False,
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return {}
+        return r.json()
+    except Exception as e:
+        logger.debug("ESS vars fetch error: %s", e)
         return {}
 
 
@@ -459,6 +485,7 @@ def _supplement_devices(devices_json, ip, sess):
     # If meters already present in device list, return now
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
         _inject_battery(data, livedata)
+        _inject_battery_units(data, _fetch_ess_vars(sess, ip))
         return json.dumps(data), livedata
 
     # Meters missing — supplement from full varserver data
@@ -515,12 +542,19 @@ def _supplement_devices(devices_json, ip, sess):
 
     data["devices"] = device_list
     _inject_battery(data, livedata)
+    # vars_data was fetched above for the meter supplement; reuse it for
+    # per-unit battery details so we don't make a second varserver call.
+    _inject_battery_units(data, vars_data)
     return json.dumps(data), livedata
 
 
 def _inject_battery(data, livedata):
-    """Surface battery (SunVault) data on the response dict so the dashboard
-    doesn't need a second request. Sign convention: p_kw > 0 = discharging."""
+    """Surface battery (SunVault) data + grid (net_p) + per-unit battery
+    detail on the response dict so the dashboard doesn't need a second
+    request. Sign conventions:
+      battery p_kw   > 0 = discharging, < 0 = charging
+      grid    p_kw   > 0 = importing,   < 0 = exporting (PVS net_p)
+    """
     if not livedata:
         return
     try:
@@ -533,6 +567,57 @@ def _inject_battery(data, livedata):
         }
     except (ValueError, TypeError) as e:
         logger.debug("Battery data parse error: %s", e)
+
+    # Authoritative grid power (revenue meter), so the dashboard doesn't
+    # have to derive it from energy balance with measurement-noise drift.
+    try:
+        data["grid"] = {
+            "p_kw": float(livedata.get("net_p", 0)),
+            "lifetime_kwh": float(livedata.get("net_en", 0)),
+        }
+    except (ValueError, TypeError):
+        pass
+
+
+def _inject_battery_units(data, vars_data):
+    """Add data.battery.units = [...] from /sys/devices/ess/{0,1}/ varserver
+    keys. SunVault has 2 units; some installs may have more or fewer."""
+    if not vars_data or "battery" not in data:
+        return
+    units = []
+    # Discover unit indices by scanning the keys
+    indices = sorted({
+        int(k.split("/")[4])
+        for k in vars_data.keys()
+        if k.startswith("/sys/devices/ess/") and k.split("/")[4].isdigit()
+    })
+    for i in indices:
+        prefix = f"/sys/devices/ess/{i}/"
+        u = {k.replace(prefix, ""): v for k, v in vars_data.items() if k.startswith(prefix)}
+        if not u:
+            continue
+        def f(key, default=None):
+            try: return float(u[key])
+            except (KeyError, ValueError, TypeError): return default
+        units.append({
+            "index": i,
+            "model": u.get("prodMdlNm"),
+            "serial": u.get("sn"),
+            "p_kw": f("p3phsumKw", 0),
+            "soc": f("socVal", 0),
+            "soh": f("sohVal"),
+            "op_mode": u.get("opMode"),
+            "v_batt": f("vBattV"),
+            "temp_c": f("maxTBattCellDegc"),  # max cell temp = warmest part
+            "temp_inv_c": f("tInvtrDegc"),
+            "lifetime_charged_kwh": f("posLtea3phsumKwh"),
+            "lifetime_discharged_kwh": f("negLtea3phsumKwh"),
+            "chrg_limit_kw": f("chrgLimitPmaxKw"),
+            "dischrg_limit_kw": f("dischrgLimPmaxKw"),
+            "msmt_eps": u.get("msmtEps"),
+        })
+    if units:
+        data["battery"]["units"] = units
 
 
 # ── PVS authentication ────────────────────────────────────────────────
@@ -781,10 +866,13 @@ def history():
         """, (cutoff,)).fetchall()
 
         # Period totals — compute kWh for the actual data span (not the requested
-        # window, which may extend before our earliest reading).
+        # window, which may extend before our earliest reading). Prefer
+        # cumulative-counter deltas (exact, drift-free) over AVG×hours
+        # integration, which is lossy under high variance (e.g. outage spikes).
         totals_row = c.execute("""
             SELECT
                 MAX(lifetime_kwh) - MIN(lifetime_kwh) as solar_from_lifetime,
+                MAX(home_lifetime_kwh) - MIN(home_lifetime_kwh) as home_from_lifetime,
                 AVG(production_kw) as avg_prod,
                 AVG(consumption_kw) as avg_cons,
                 AVG(net_kw) as avg_net,
@@ -800,11 +888,15 @@ def history():
             t_start = totals_row["t_start"] or 0
             t_end = totals_row["t_end"] or 0
             elapsed_h = max(1 / 3600, (t_end - t_start) / 3600)
-            # Solar: prefer cumulative lifetime delta (exact); fall back to integration
+            # Solar: lifetime delta when available (exact), else integration
             solar_kwh = totals_row["solar_from_lifetime"] or 0
             if solar_kwh < 0.01:
                 solar_kwh = max(0, (totals_row["avg_prod"] or 0) * elapsed_h)
-            home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
+            # Home: same approach. Older rows have NULL home_lifetime_kwh →
+            # MAX-MIN may be 0 and we fall back to integration.
+            home_kwh = totals_row["home_from_lifetime"] or 0
+            if home_kwh < 0.01:
+                home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
             # PVS net_p convention: positive = importing from grid, negative = exporting.
             # Verified empirically (2026-04-25):
             #   During outage pv=0.02 load=12.34 → net_kw=+12.32 (importing 12.3 kW)
