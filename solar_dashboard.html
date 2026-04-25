@@ -450,10 +450,9 @@
     .savings-item .value { font-size: 1.05rem; font-weight: 800; color: var(--text); line-height: 1.1; }
     .savings-item .label { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.2; padding: 0 0.1rem; }
 
-    /* ── Chart mode toggle (ENERGY/POWER) ──────────
-       Shares all dimensional rules with .chart-tab via the
-       .pill-btn base class so the two pills sit on an identical
-       baseline regardless of browser button defaults. */
+    /* Pill button base — used by both chart-tab (time ranges) and
+       chart-mode (POWER/ENERGY). Explicit dimensions defeat browser
+       button user-agent style drift. */
     .pill-btn {
       display: inline-flex;
       align-items: center;
@@ -472,11 +471,12 @@
       box-sizing: border-box;
       transition: background 0.2s, color 0.2s, border-color 0.2s;
     }
-    .chart-modes { display: inline-flex; gap: 0; }
-    .chart-mode:first-child { border-radius: 9999px 0 0 9999px; border-right-width: 0; }
-    .chart-mode:last-child  { border-radius: 0 9999px 9999px 0; }
+    .chart-modes { display: inline-flex; gap: 0.35rem; }
+    .chart-mode { border-radius: 9999px; }
     .chart-mode.active { background: var(--accent); color: #000; border-color: var(--accent); }
     .chart-mode:hover:not(.active) { color: var(--text); background: var(--bg-card-hover); }
+    /* Visual divider between the POWER/ENERGY group and the time-range group */
+    .chart-modes + .chart-tabs { margin-left: 0.4rem; padding-left: 0.7rem; border-left: 1px solid var(--border); }
 
     /* tab-disabled = not enough history yet */
     .chart-tab[disabled] { opacity: 0.3; cursor: not-allowed; pointer-events: none; }

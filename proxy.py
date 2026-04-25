@@ -746,7 +746,9 @@ def add_cors(resp):
 def index():
     if DASHBOARD_HTML is None:
         return Response("Dashboard not loaded", status=500)
-    return Response(DASHBOARD_HTML, mimetype="text/html")
+    resp = Response(DASHBOARD_HTML, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.route("/solar_dashboard.html")
