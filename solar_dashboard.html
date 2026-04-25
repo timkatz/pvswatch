@@ -217,12 +217,71 @@
       transition: border-color 0.2s, background 0.2s;
     }
     .panel:hover { border-color: #2a3a4e; background: var(--bg-card-hover); }
+    .panel.clickable { cursor: pointer; }
+    .panel.clickable:hover { border-color: var(--accent); }
     .panel .watts { font-size: 1.15rem; font-weight: 800; color: var(--text); margin-bottom: 0.15rem; }
     .panel .status { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
     .panel .status.ok { color: var(--green); }
     .panel .status.err { color: var(--red); }
     .panel .detail { margin-top: 0.3rem; line-height: 1.5; }
+    .panel .lifetime { margin-top: 0.35rem; font-size: 0.7rem; font-weight: 700; color: var(--accent); letter-spacing: 0.02em; }
     .panel.low-perf { border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.05); }
+
+    /* ── Panel drilldown modal ──────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1rem;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      max-width: 720px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 1.5rem;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .modal-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 1rem;
+      gap: 1rem;
+    }
+    .modal-head h3 { font-size: 1rem; font-weight: 700; letter-spacing: -0.01em; }
+    .modal-head .serial { color: var(--text-dim); font-size: 0.78rem; font-weight: 500; }
+    .modal-close {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 32px; height: 32px; border-radius: 50%;
+      cursor: pointer; font-size: 1.1rem; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .modal-close:hover { background: var(--bg-card-hover); color: var(--text); }
+    .modal-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .modal-stat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.8rem;
+    }
+    .modal-stat .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+    .modal-stat .value { font-size: 1.1rem; font-weight: 800; line-height: 1.2; }
+    .modal-tabs { display: flex; gap: 0.35rem; margin-bottom: 0.75rem; }
+    .modal-chart-wrap { position: relative; height: 220px; }
 
     /* ── System info ────────────────────────────── */
     .info-grid {
@@ -616,6 +675,31 @@
     </div>
   </div>
 
+  <!-- Panel drilldown modal -->
+  <div class="modal-backdrop" id="panelModal" onclick="if(event.target===this)closePanelModal()">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <div>
+          <h3 id="pm_title">Panel</h3>
+          <div class="serial" id="pm_serial"></div>
+        </div>
+        <button class="modal-close" onclick="closePanelModal()" aria-label="Close">×</button>
+      </div>
+      <div class="modal-stats">
+        <div class="modal-stat"><div class="label">Lifetime</div><div class="value" id="pm_lifetime">—</div></div>
+        <div class="modal-stat"><div class="label">Period total</div><div class="value" id="pm_total">—</div></div>
+        <div class="modal-stat"><div class="label">Latest power</div><div class="value" id="pm_latest">—</div></div>
+      </div>
+      <div class="modal-tabs" id="pm_tabs">
+        <button class="chart-tab active" data-range="24h">DAY</button>
+        <button class="chart-tab" data-range="7d">WEEK</button>
+        <button class="chart-tab" data-range="30d">MONTH</button>
+      </div>
+      <div class="modal-chart-wrap"><canvas id="pm_chart"></canvas></div>
+      <div style="margin-top:0.6rem;font-size:0.7rem;color:var(--text-dim)" id="pm_meta"></div>
+    </div>
+  </div>
+
 <script>
 const REFRESH_INTERVAL = 20 * 1000;
 const _urlParams = new URLSearchParams(window.location.search);
@@ -804,6 +888,19 @@ async function fetchData() {
 
     document.getElementById('panelCount').textContent = inverters.length + ' panels';
 
+    // Helper for the always-on lifetime line at the bottom of every panel card
+    const lifetimeLine = (inv) => {
+      const lt = parseFloat(inv.ltea_3phsum_kwh || 0);
+      if (!lt || isNaN(lt)) return '';
+      const e = fmtEnergy(lt);
+      return `<div class="lifetime">${e.value} ${e.unit}</div>`;
+    };
+    const panelHead = (inv) => {
+      const sn = inv.SERIAL || '';
+      const last = sn.slice(-6);
+      return `data-serial="${sn}" title="Click for details — last 6 of serial: ${last}"`;
+    };
+
     if (inverters.length === 0) {
       document.getElementById('panels').innerHTML =
         '<div class="panel" style="grid-column:1/-1;border-color:var(--accent);background:var(--accent-glow)">No solar panels detected</div>';
@@ -815,10 +912,11 @@ async function fetchData() {
           <div class="watts" style="color:var(--cyan)">🌙 ${inverters.length} panels — nighttime idle</div>
           <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">Panels are offline (normal after dark — powerline comms require daylight)</div>
         </div>` +
-        inverters.map(inv => `<div class="panel">
+        inverters.map(inv => `<div class="panel clickable" ${panelHead(inv)}>
           <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || inv.MODEL || ''}</div>
           <div style="font-size:0.6rem;color:var(--text-dim)">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''} · FW ${inv.SWVER || '?'}</div>
+          ${lifetimeLine(inv)}
         </div>`).join('');
     } else if (allError && !hasPowerData) {
       // All panels in error state with no power data — comms/hardware failure
@@ -827,19 +925,21 @@ async function fetchData() {
           <div class="watts" style="color:var(--red)">⚠ All ${inverters.length} panels in error</div>
           <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">No communication with inverters — check PVS gateway connections</div>
         </div>` +
-        inverters.map(inv => `<div class="panel" style="border-color:rgba(239,68,68,0.25)">
+        inverters.map(inv => `<div class="panel clickable" style="border-color:rgba(239,68,68,0.25)" ${panelHead(inv)}>
           <div class="watts" style="color:var(--text-dim)">— W</div>
           <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || inv.MODEL || ''}</div>
           <div style="font-size:0.6rem;color:var(--text-dim)">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''} · FW ${inv.SWVER || '?'}</div>
           <div class="status err" style="margin-top:0.2rem">${inv.STATEDESCR || inv.STATE || '—'}</div>
+          ${lifetimeLine(inv)}
         </div>`).join('');
     } else if (!hasPowerData && allWorking) {
       // All panels working but no power (nighttime)
-      document.getElementById('panels').innerHTML = inverters.map(inv => `<div class="panel">
+      document.getElementById('panels').innerHTML = inverters.map(inv => `<div class="panel clickable" ${panelHead(inv)}>
         <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
         <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem">${inv.PANEL || inv.MODEL || ''}</div>
         <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''}</div>
         <div class="status ok" style="margin-top:0.2rem">Idle</div>
+        ${lifetimeLine(inv)}
       </div>`).join('');
     } else {
       // Mixed or active production — show per-panel detail
@@ -858,7 +958,7 @@ async function fetchData() {
         // At night/low production: same state is just idle
         const isLikelyIdle = !ok && isNoop && prodKwAbs < 0.05;
         const isLow = maxW > 0 && w > 0 && w < 0.85 * maxW;
-        const cls = isLow ? 'panel low-perf' : (isLikelyIdle ? 'panel' : 'panel');
+        const cls = (isLow ? 'panel low-perf' : 'panel') + ' clickable';
         const borderCls = (!ok && !isLikelyIdle) ? ';border-color:rgba(239,68,68,0.25)' : '';
         let wattsStr;
         if (ok && w > 0) wattsStr = isNaN(w) ? '—' : w + ' W';
@@ -870,11 +970,12 @@ async function fetchData() {
         if (adc > 0) detailParts.push(adc.toFixed(2) + 'A');
         if (temp) detailParts.push('🌡️ ' + temp + '°C');
         const detailHtml = detailParts.length ? '<div class="detail">' + detailParts.join(' · ') + '</div>' : '';
-        return `<div class="${cls}" style="${borderCls}">
+        return `<div class="${cls}" style="${borderCls}" ${panelHead(inv)}>
           <div class="watts" ${(!ok && !isLikelyIdle) ? 'style="color:var(--red)"' : ''}>${wattsStr}</div>
           <div class="status ${ok ? 'ok' : (isLikelyIdle ? 'ok' : 'err')}">${isLikelyIdle ? 'Idle' : (inv.STATEDESCR || inv.STATE || '—')}</div>
           ${detailHtml}
           <div style="font-size:0.6rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || ''}</div>
+          ${lifetimeLine(inv)}
         </div>`;
       }).join('');
     }
@@ -1244,6 +1345,123 @@ function renderChart(data) {
   if (powerChart) { powerChart.destroy(); powerChart = null; }
   const ctx = canvas.getContext('2d');
   powerChart = new Chart(ctx, { type: chartType, data: { labels, datasets }, options });
+}
+
+// ── Panel drilldown modal ───────────────────────────────────────────
+let pmChart = null;
+let pmCurrentSerial = null;
+let pmCurrentRange  = '24h';
+let pmCurrentPanel  = null; // last clicked inv object (for header info)
+
+document.getElementById('panels').addEventListener('click', (e) => {
+  const card = e.target.closest('.panel.clickable');
+  if (!card || !card.dataset.serial) return;
+  openPanelModal(card.dataset.serial);
+});
+
+document.getElementById('pm_tabs').addEventListener('click', (e) => {
+  const t = e.target.closest('.chart-tab');
+  if (!t) return;
+  document.querySelectorAll('#pm_tabs .chart-tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  pmCurrentRange = t.dataset.range;
+  fetchPanelDrill(pmCurrentSerial, pmCurrentRange);
+});
+
+function openPanelModal(serial) {
+  pmCurrentSerial = serial;
+  pmCurrentRange  = '24h';
+  document.querySelectorAll('#pm_tabs .chart-tab').forEach(t => t.classList.toggle('active', t.dataset.range === '24h'));
+  document.getElementById('pm_serial').textContent = 'SN# ' + serial;
+  document.getElementById('pm_title').textContent  = 'Panel ' + serial.slice(-6);
+  document.getElementById('pm_lifetime').textContent = '—';
+  document.getElementById('pm_total').textContent    = '—';
+  document.getElementById('pm_latest').textContent   = '—';
+  document.getElementById('pm_meta').textContent     = 'Loading…';
+  document.getElementById('panelModal').classList.add('open');
+  fetchPanelDrill(serial, pmCurrentRange);
+}
+
+function closePanelModal() {
+  document.getElementById('panelModal').classList.remove('open');
+  if (pmChart) { pmChart.destroy(); pmChart = null; }
+  pmCurrentSerial = null;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('panelModal').classList.contains('open')) {
+    closePanelModal();
+  }
+});
+
+async function fetchPanelDrill(serial, range) {
+  try {
+    const res = await fetch(`/panel/${encodeURIComponent(serial)}/history?range=${range}`);
+    if (!res.ok) {
+      document.getElementById('pm_meta').textContent = 'Failed to load (HTTP ' + res.status + ')';
+      return;
+    }
+    const data = await res.json();
+    renderPanelDrill(data);
+  } catch (e) {
+    document.getElementById('pm_meta').textContent = 'Error: ' + e.message;
+  }
+}
+
+function renderPanelDrill(data) {
+  const latest = data.latest || {};
+  const lf = parseFloat(latest.lifetime_kwh || 0);
+  const lfE = fmtEnergy(lf);
+  document.getElementById('pm_lifetime').innerHTML = lfE.value + ' <span style="font-size:0.7rem;color:var(--text-dim)">' + lfE.unit + '</span>';
+  const totE = fmtEnergy(data.total_kwh || 0);
+  document.getElementById('pm_total').innerHTML = totE.value + ' <span style="font-size:0.7rem;color:var(--text-dim)">' + totE.unit + '</span>';
+  const w = Math.round(parseFloat(latest.watts || 0));
+  document.getElementById('pm_latest').innerHTML = (isNaN(w) ? '—' : w) + ' <span style="font-size:0.7rem;color:var(--text-dim)">W</span>';
+
+  const buckets = data.buckets || [];
+  const meta = `${buckets.length} buckets × ${(data.bucket_seconds/3600).toFixed(data.bucket_seconds<3600?2:0)}h • ${latest.panel_model || ''} • state: ${latest.state || '?'}`;
+  document.getElementById('pm_meta').textContent = meta;
+
+  const canvas = document.getElementById('pm_chart');
+  const wantsDate = ['7d','30d'].includes(pmCurrentRange);
+  const labels = buckets.map(b => {
+    const d = new Date(b.bucket * 1000);
+    if (wantsDate) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  });
+  const kwhData = buckets.map(b => +(b.kwh || 0).toFixed(3));
+
+  if (pmChart) { pmChart.destroy(); pmChart = null; }
+  if (!buckets.length) return;
+  const ctx = canvas.getContext('2d');
+  pmChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Energy',
+        data: kwhData,
+        backgroundColor: 'rgba(245,158,11,0.85)',
+        borderWidth: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e2a3a', titleColor: '#e4e8ee', bodyColor: '#e4e8ee',
+          borderColor: '#2a3a4e', borderWidth: 1, padding: 10,
+          callbacks: { label: c => `${(+c.parsed.y).toFixed(3)} kWh` }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#7a8a9e', font: { size: 10 }, maxRotation: 0, autoSkipPadding: 12 }, grid: { display: false } },
+        y: { ticks: { color: '#7a8a9e', font: { size: 10 }, callback: v => v + ' kWh' }, grid: { color: 'rgba(30,42,58,0.5)' }, beginAtZero: true },
+      }
+    }
+  });
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────

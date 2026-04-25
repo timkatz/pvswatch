@@ -66,7 +66,8 @@ cp .env.example .env  # Edit with PVS credentials
 | `GET /` | Dashboard HTML |
 | `GET /devices` | Current PVS device data (JSON, from cache). Includes a top-level `battery` object: `{ p_kw, soc, backup_min, lifetime_kwh, midstate }` (sign convention: `p_kw > 0` = discharging). |
 | `GET /history?range=24h` | Aggregated time-series with auto-resampling; also returns `period_totals` (see below). |
-| `GET /history/panels?range=24h` | Per-panel raw readings |
+| `GET /history/panels?range=24h` | Per-panel raw readings (all panels, all rows in range — large response). |
+| `GET /panel/<serial>/history?range=24h` | Per-panel drilldown: bucketed kWh per period (5-min/1h/6h/1d auto by range), latest snapshot, total_kwh. Used by panel modal. |
 | `GET /health` | Cache status, history entry count, `history_earliest` (used by dashboard to gate which range tabs are enabled) |
 
 History ranges: `1h`, `6h`, `24h`, `7d`, `30d`, `90d`, `1y`, `all` (where `all` is computed dynamically from earliest reading).

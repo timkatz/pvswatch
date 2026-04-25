@@ -97,8 +97,8 @@ def _init_db():
         temp_c REAL,
         PRIMARY KEY (ts, serial)
     )""")
-    # Idempotent migrations — battery columns added 2026-04-25 (sign convention:
-    # battery_kw > 0 = discharging, < 0 = charging).
+    # Idempotent migrations.
+    # battery_*  added 2026-04-25 — sign: battery_kw > 0 = discharging.
     for col, sql_type in (
         ("battery_kw", "REAL"),
         ("battery_soc", "REAL"),
@@ -109,7 +109,13 @@ def _init_db():
             c.execute(f"ALTER TABLE readings ADD COLUMN {col} {sql_type}")
             logger.info("Migrated readings: added column %s", col)
         except sqlite3.OperationalError:
-            pass  # column exists
+            pass
+    # lifetime_kwh on panel_readings — captures inverter ltea_3phsum_kwh.
+    try:
+        c.execute("ALTER TABLE panel_readings ADD COLUMN lifetime_kwh REAL")
+        logger.info("Migrated panel_readings: added column lifetime_kwh")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
     logger.info("History database initialized at %s", DB_PATH)
@@ -192,10 +198,11 @@ def _record_reading(devices_json_str, livedata=None):
                 i_dc = float(inv.get("i_mppt1_a", 0) or 0)
                 v_ac = float(inv.get("vln_3phavg_v", 0) or 0)
                 temp = float(inv.get("t_htsnk_degc", 0) or 0)
+                lifetime = float(inv.get("ltea_3phsum_kwh", 0) or 0)
                 c.execute("""INSERT OR REPLACE INTO panel_readings
-                    (ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (ts, serial, inv.get("PANEL") or inv.get("MODEL") or "", state, watts, v_dc, i_dc, v_ac, temp))
+                    (ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c, lifetime_kwh)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (ts, serial, inv.get("PANEL") or inv.get("MODEL") or "", state, watts, v_dc, i_dc, v_ac, temp, lifetime))
             conn.commit()
             conn.close()
     except Exception as e:
@@ -858,7 +865,7 @@ def history_panels():
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         rows = c.execute("""
-            SELECT ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c
+            SELECT ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c, lifetime_kwh
             FROM panel_readings
             WHERE ts > ?
             ORDER BY ts
@@ -871,6 +878,93 @@ def history_panels():
         conn.close()
         return jsonify(result)
 
+    except Exception as e:
+        logger.error("Panel history query error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/panel/<serial>/history", methods=["GET"])
+def panel_history(serial):
+    """Per-panel drilldown: bucketed energy (kWh) per period.
+
+    Query params:
+      range  - 1h, 6h, 24h, 7d, 30d (default: 24h)
+      bucket - bucket size in seconds (default: auto — 5 min for 1-6h ranges,
+               1 hour for 24h, 1 day for 7d+)
+    """
+    range_str = request.args.get("range", "24h")
+    range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
+    range_secs = range_map.get(range_str, 86400)
+    cutoff = time.time() - range_secs
+
+    bucket_param = request.args.get("bucket")
+    if bucket_param:
+        bucket_secs = int(bucket_param)
+    else:
+        # Auto-bucket: aim for 24-30 buckets per range
+        if range_secs <= 21600:    bucket_secs = 300       # 5 min
+        elif range_secs <= 86400:  bucket_secs = 3600      # 1 hour
+        elif range_secs <= 604800: bucket_secs = 21600     # 6 hour
+        else:                      bucket_secs = 86400     # 1 day
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # Latest snapshot for header info
+        latest_row = c.execute("""
+            SELECT ts, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c, lifetime_kwh
+            FROM panel_readings WHERE serial = ?
+            ORDER BY ts DESC LIMIT 1
+        """, (serial,)).fetchone()
+
+        if not latest_row:
+            return jsonify({"error": "panel not found", "serial": serial}), 404
+
+        # Bucketed energy
+        bucket_expr = f"CAST((ts / {bucket_secs}) AS INTEGER) * {bucket_secs}"
+        rows = c.execute(f"""
+            SELECT
+                {bucket_expr} as bucket,
+                AVG(watts) as avg_w,
+                COUNT(*) as samples,
+                MAX(lifetime_kwh) as lifetime_max,
+                MIN(lifetime_kwh) as lifetime_min,
+                AVG(v_dc) as avg_v_dc,
+                AVG(temp_c) as avg_temp_c
+            FROM panel_readings
+            WHERE ts > ? AND serial = ?
+            GROUP BY bucket
+            ORDER BY bucket
+        """, (cutoff, serial)).fetchall()
+
+        # Compute kWh per bucket: prefer lifetime delta, fall back to avg power × hours
+        h_per_bucket = bucket_secs / 3600
+        buckets = []
+        for r in rows:
+            d = dict(r)
+            lifetime_delta = (d.get("lifetime_max") or 0) - (d.get("lifetime_min") or 0)
+            if lifetime_delta > 0.001:
+                d["kwh"] = round(lifetime_delta, 4)
+                d["source"] = "lifetime"
+            else:
+                d["kwh"] = round(((d.get("avg_w") or 0) / 1000) * h_per_bucket, 4)
+                d["source"] = "integration"
+            buckets.append(d)
+
+        # Period total
+        total_kwh = sum(b["kwh"] for b in buckets)
+
+        conn.close()
+        return jsonify({
+            "serial": serial,
+            "range": range_str,
+            "bucket_seconds": bucket_secs,
+            "latest": dict(latest_row),
+            "total_kwh": round(total_kwh, 3),
+            "buckets": buckets,
+        })
     except Exception as e:
         logger.error("Panel history query error: %s", e)
         return jsonify({"error": str(e)}), 500
