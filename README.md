@@ -110,7 +110,21 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-> **Prebuilt container image — coming soon.** A multi-arch image is published to GitHub Container Registry on every release tag (`ghcr.io/timkatz/pvswatch:latest`), but the package is currently private. Once it's published publicly, you'll be able to skip the local build entirely and just `docker compose pull && docker compose up -d` against an `image:` reference.
+**Option C — pull the prebuilt image** (skip the local build):
+
+A multi-arch (`linux/amd64`, `linux/arm64`) image is published to GitHub Container Registry on every release tag. Edit `docker-compose.yml` to replace the `build: .` line on the `pvswatch` service with:
+
+```yaml
+image: ghcr.io/timkatz/pvswatch:latest
+```
+
+then:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Pin to a specific release if you'd rather not auto-roll: `ghcr.io/timkatz/pvswatch:2026.04.25.3` (full version), `:2026.04.25` (latest release of that day), or `:2026` (latest of that year).
 
 The dashboard is now at `http://localhost:5001/` (or whatever `DASHBOARD_PORT` you set).
 
