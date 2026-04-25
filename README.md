@@ -1,123 +1,215 @@
-# SunStrong — SunPower PVS5/PVS6 Solar Monitor
+# SunStrong — Self-Hosted SunPower PVS5/PVS6 Solar Monitor
 
-Dockerized web dashboard for monitoring SunPower PVS5/PVS6 solar systems. Features real-time monitoring, time-series history with interactive charts, and Tailscale HTTPS exposure.
+A self-hosted, single-container web dashboard for SunPower **PVS5 / PVS6** solar gateways. Talks to the gateway over your LAN, records its time-series data to SQLite, and serves a real-time dashboard with charts, per-panel detail, SunVault battery status, and a live energy-flow diagram. No cloud dependency — your data stays on your network.
 
-**Live**: https://sunstrong.your-tailnet.ts.net/
+## Why this exists
 
-## Quick Start
+In 2024, **SunPower filed for bankruptcy** and was acquired by **SunStrong Management** (Complete Solaria), which now operates the residential fleet. As part of that transition, the legacy **MySunPower web dashboard was retired** and the official mobile app became the only sanctioned interface for homeowners.
 
-### Local (macOS)
+The PVS gateway under your stairs/garage still produces excellent local telemetry — it just no longer has a vendor-supported way to view it on a computer. This project fills that gap.
 
-```bash
-# 1. Copy and edit config
-cp .env.example .env
-# Edit .env with your PVS IP, serial number, etc.
+## ⚠️ PVS6 firmware compatibility (read this first)
 
-# 2. Build and start
-./sunpower.sh start
+The PVS6 historically exposed a local HTTP API on a hidden installer access point. SunPower **progressively restricted local API access** in firmware updates throughout 2024, and after the SunStrong acquisition there is **no official path to downgrade firmware**. This monitor only works if your gateway's current firmware still serves the local API.
 
-# 3. Open in browser
-./sunpower.sh open
-```
+**Known-working range:** Firmware versions through approximately **2024.04**. Firmware **~2024.06 and later** has been reported to lock down or remove the endpoints this project depends on.
 
-### Your-server (Unraid)
+**Test before deploying** — from any machine on the same LAN as the PVS:
 
 ```bash
-# On your-server
-cd /mnt/user/appdata/sunstrong/repo
-docker compose up -d --build
+# Replace LAST5 with the last 5 chars of your PVS *internal* serial.
+curl -u "ssm_owner:LAST5" http://<PVS_IP>/cgi-bin/dl_cgi/devices/list
 ```
 
-The first Tailscale launch requires browser authentication — check `docker logs sunstrong-tailscale` for the auth URL.
+- ✅ Returns a JSON device list after 30–60 seconds → you're good
+- ❌ Returns 401/403/404, hangs, or refuses connection → your firmware likely no longer exposes the local API and this project will not work for you
 
 ## Features
 
-- **Real-time dashboard** — production, consumption, net power, voltage, frequency
-- **Inverter panel status** — per-panel detail with nighttime detection (PVS6 reports panels as "Error" after dark — this is normal and shown as 🌙 Idle)
-- **Time-series history** — SQLite-backed, records every refresh cycle
-- **Interactive charts** — Chart.js power graph with 1H / 6H / 24H / 7D / 30D range selection
-- **Tailscale HTTPS** — secure remote access via tailnet with automatic TLS
-- **PVS6 meter supplementation** — injects meter data from the varserver API when missing
-
-## Configuration
-
-All config lives in `.env`:
-
-| Variable | Default | Description |
-|---|---|---|
-| `PVS_IP` | — | PVS gateway IP address (required) |
-| `PVS_USER` | `ssm_owner` | PVS auth username |
-| `PVS_PASS` | — | PVS auth password (last 5 chars of internal serial) |
-| `PVS_SERIAL` | — | Full internal serial (for reference) |
-| `DASHBOARD_PORT` | `5002` | Host port for the dashboard |
-| `TIMEOUT_SECS` | `120` | PVS request timeout (dl_cgi can be very slow) |
-| `REFRESH_SECS` | `3600` | Background refresh interval (1 hour) |
-| `DATA_DIR` | `./data` | Directory for SQLite history database |
-| `TS_HOSTNAME` | `sunstrong` | Tailscale hostname |
-| `LOG_LEVEL` | `INFO` | Python log level |
-
-### Finding your PVS internal serial number
-
-The password is **not** the serial printed on the unit's label — it's the last 5 characters of the PVS **internal** serial number. Find it by visiting:
-
-```
-http://<PVS_IP>/vars?name=/sys/info/serialnum
-```
-
-The value will look like `ZT00000000000000000` — take the last 5 characters (`W4730`) as the `PVS_PASS`.
-
-## API Endpoints
-
-| Endpoint | Description |
-|---|---|
-| `GET /` | Dashboard HTML |
-| `GET /devices` | Current PVS device data (JSON) |
-| `GET /history?range=24h` | Time-series readings with auto-resampling |
-| `GET /history/panels?range=24h` | Per-panel history |
-| `GET /health` | Cache status, history count |
-
-History ranges: `1h`, `6h`, `24h`, `7d`, `30d`
+- **Real-time hero KPIs** — Lifetime solar, plus Solar / Home / Battery / Grid for the selected window (LIVE / 1H / 6H / 24H / 7D / 30D / 90D / 1Y / ALL)
+- **Energy independence %** — `solar_kwh ÷ home_kwh` for the selected window
+- **Live power-flow diagram** — Home Assistant-style 4-node SVG with animated dots showing where energy is moving right now
+- **POWER ↔ ENERGY chart toggle** — line chart of kW over time, or stacked bar chart of kWh per period
+- **SunVault battery section** — state of charge, charge/discharge power, backup-time-remaining
+- **Per-panel inverter status** — click a panel for a drill-down chart of its production over day/week/month
+- **Savings card** — dollars saved, lbs CO₂ avoided, trees-equivalent, miles-not-driven, gallons-not-used (configurable rate / emissions factor)
+- **Nighttime detection** — when DC powerline comms drop after dark, panels report `STATE=error` even though nothing is wrong; the dashboard recognizes this pattern and shows "🌙 Nighttime idle" instead of a red banner
+- **Optional Tailscale sidecar** — secure HTTPS access from anywhere on your tailnet without opening a router port
 
 ## Architecture
 
 ```
- Browser → Tailscale (HTTPS) → Flask proxy (auth) → PVS gateway (HTTPS)
-                                      ↓
-                              SQLite history DB
+Browser ──► (optional Tailscale HTTPS) ──► Flask proxy (5001) ──► PVS gateway (HTTPS)
+                                                  │
+                                          SQLite history DB
 ```
 
-1. **`proxy.py`** (Flask) reads config from env, handles HTTPS auth with the PVS gateway, injects config into the dashboard HTML
-2. Background thread refreshes PVS data every 60s, records to SQLite, caches for instant `/devices` responses
-3. Dashboard JS calls `/devices` and `/history` on the same origin
-4. Tailscale sidecar provides HTTPS with auto-TLS at `sunstrong.<tailnet>.ts.net`
-5. All communication is **local** — no cloud dependency
+- **`proxy.py`** — Flask app: handles HTTP Basic auth against the PVS, caches `/devices` data, runs a background poll thread that records to SQLite, exposes the JSON API the dashboard consumes, and serves the dashboard HTML
+- **`solar_dashboard.html`** — Single-file HTML/CSS/JS dashboard (Chart.js for the time-series chart, vanilla SVG for the flow diagram)
+- **`docker-compose.yml`** — The monitor container plus an optional Tailscale sidecar
+- **SQLite** — `solar_history.db` in the data volume; one row per refresh in `readings`, plus per-panel rows in `panel_readings`
 
-## Local Commands
+A background thread inside `proxy.py` polls the PVS every `REFRESH_SECS` (default 300s = 5 min). The PVS scan cycle is ~40–60 min so meter values change at most that often, but the `/sys/livedata/` endpoint refreshes every few seconds and is the freshest source for kW readings.
+
+## Quick start
+
+### Prerequisites
+
+- A SunPower **PVS5 or PVS6** with firmware that still exposes the local HTTP API (see compatibility section above)
+- Network reachability from the host running this container to the PVS gateway IP
+- Docker + Docker Compose
+- The PVS internal serial number (see below)
+
+### Find your PVS internal serial number
+
+The PVS auth password is **not** the serial printed on the unit's label — it's the **last 5 characters of the internal serial**. Find it from any LAN-connected machine:
 
 ```bash
-./sunpower.sh start     # Start the container (builds first if needed)
-./sunpower.sh stop      # Stop the container
-./sunpower.sh restart    # Restart the container
-./sunpower.sh logs       # Follow container logs
-./sunpower.sh status     # Show status and recent logs
-./sunpower.sh url        # Print the dashboard URL
-./sunpower.sh open       # Open dashboard in browser
-./sunpower.sh build      # Build/rebuild the Docker image
-./sunpower.sh help       # Show help
+curl http://<PVS_IP>/cgi-bin/dl_cgi/getvarserver?vars=/sys/info/serialnum
+# or:
+curl 'http://<PVS_IP>/vars?name=/sys/info/serialnum'
 ```
 
-## Files
+The response will look like `ZTxxxxxxxxxxxxxxxxx`. Take the **last 5 characters** — that's your `PVS_PASS`.
 
-| File | Purpose |
+### 1. Configure
+
+```bash
+cp .env.example .env
+# Edit .env and set at minimum:
+#   PVS_IP   = your PVS LAN IP (e.g. 192.168.1.50)
+#   PVS_PASS = the last 5 chars of the internal serial
+```
+
+### 2. Start the container
+
+**With the convenience wrapper (macOS/Linux):**
+
+```bash
+./sunpower.sh start    # builds and starts
+./sunpower.sh logs     # follow logs
+./sunpower.sh open     # open the dashboard in your browser
+```
+
+**Or directly with Docker Compose:**
+
+```bash
+docker compose up -d --build
+```
+
+The dashboard is now at `http://localhost:5001/` (or whatever `DASHBOARD_PORT` you set).
+
+The first request can take 60–90 seconds — the PVS `/devices/list` endpoint is famously slow, and the proxy waits for the first poll to complete before serving data.
+
+### 3. (Optional) HTTPS access from anywhere via Tailscale
+
+The included `tailscale` sidecar in `docker-compose.yml` will expose the dashboard at `https://<TS_HOSTNAME>.<your-tailnet>.ts.net/` from any device on your tailnet. On first run, check the sidecar logs for the auth URL:
+
+```bash
+docker logs sunstrong-tailscale
+```
+
+If you don't want Tailscale, simply remove or comment out the `tailscale:` service in `docker-compose.yml`.
+
+## Configuration
+
+All settings come from `.env`. Required fields are marked.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PVS_IP` | — | **Required.** PVS gateway IP on your LAN |
+| `PVS_USER` | `ssm_owner` | PVS auth username (always this for SunPower) |
+| `PVS_PASS` | — | **Required.** Last 5 chars of internal serial |
+| `DASHBOARD_PORT` | `5001` | Host port for the dashboard |
+| `TIMEOUT_SECS` | `120` | PVS request timeout (`/devices/list` is slow) |
+| `REFRESH_SECS` | `300` | Background poll interval (5 min recommended) |
+| `DATA_DIR` | `./data` | Bind-mount path for SQLite + Tailscale state |
+| `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `COST_PER_KWH` | `0.30` | Utility rate ($/kWh) for the Savings card |
+| `CO2_LBS_PER_KWH` | `0.85` | Grid emissions factor for the Savings card |
+| `TS_HOSTNAME` | `sunstrong` | Tailscale device name (sidecar only) |
+| `TS_AUTHKEY` | — | Optional Tailscale auth key for unattended startup |
+
+⚠️ **Polling rate**: don't set `REFRESH_SECS` lower than 300 (5 min). Each poll involves the slow `/devices/list` call (~30–45 s); going faster causes overlapping requests and added load on the gateway.
+
+## API endpoints
+
+The Flask app exposes these JSON endpoints — useful for Home Assistant, Grafana, scripts, etc.
+
+| Endpoint | Description |
 |---|---|
-| `proxy.py` | Flask auth proxy + history recording + dashboard server |
-| `solar_dashboard.html` | Dashboard UI with Chart.js (single HTML file) |
-| `Dockerfile` | Container image definition |
-| `docker-compose.yml` | Container orchestration + Tailscale sidecar |
-| `sunpower.sh` | Local management script |
-| `.env` | Your config (not tracked in git) |
-| `.env.example` | Config template |
+| `GET /` | Dashboard HTML |
+| `GET /devices` | Latest cached PVS device data; includes a top-level `battery` object (`p_kw`, `soc`, `backup_min`, `lifetime_kwh`) and `grid` object (`p_kw`, `lifetime_kwh`). Sign convention: `battery.p_kw > 0` = discharging; `grid.p_kw > 0` = importing |
+| `GET /history?range=24h` | Bucketed time-series + a `period_totals` block (kWh per source, savings, CO₂, independence %, etc.). Ranges: `1h`, `6h`, `24h`, `7d`, `30d`, `90d`, `1y`, `all` |
+| `GET /history/panels?range=24h` | Per-panel raw readings for the range (large response) |
+| `GET /panel/<serial>/history?range=24h` | Per-panel drilldown: bucketed kWh, latest snapshot, total — used by the dashboard panel modal |
+| `GET /health` | Cache freshness, history row count, and `history_earliest` timestamp |
 
-## Network
+## Database schema
 
-The PVS gateway is on your LAN (e.g. `192.168.1.50`). The container uses `network_mode: host` on Unraid for direct LAN access. On macOS, Docker Desktop routes container traffic automatically.
+SQLite, two tables, schema created on first start:
+
+- **`readings`** — one row per poll: `production_kw`, `consumption_kw`, `net_kw`, `lifetime_kwh`, voltage / frequency / power-factor, panel health counts, and battery columns (`battery_kw`, `battery_soc`, `backup_min`, `battery_lifetime_kwh`, `home_lifetime_kwh`, `grid_lifetime_kwh`)
+- **`panel_readings`** — one row per inverter per poll: `serial`, `model`, `state`, `watts`, DC/AC voltage, current, temperature, `lifetime_kwh`
+
+Schema migrations are idempotent `ALTER TABLE` calls in `_init_db()` — safe to run on existing databases.
+
+**Sign conventions** (verified empirically):
+- `net_kw > 0` = importing from grid; `< 0` = exporting (matches PVS `net_p`)
+- `battery_kw > 0` = discharging; `< 0` = charging
+
+## Local management script
+
+`sunpower.sh` is a thin wrapper around `docker compose`:
+
+```
+build     Build (or rebuild) the Docker image
+start     Start the container (builds first if needed)
+stop      Stop and remove the container
+restart   Stop and start the container
+status    Show container status and recent logs
+logs      Follow container logs
+url       Print the dashboard URL
+open      Open the dashboard in your browser
+update    Pull upstream dashboard changes from thomastech/SunPower-Web-Monitor and rebuild
+help      Show this help
+```
+
+## Troubleshooting
+
+### "Dashboard not loaded" / 500 on first request
+The first poll takes 30–90 s because `/devices/list` is slow. Wait, then refresh.
+
+### 401/403 from the PVS
+- Confirm `PVS_PASS` is the **last 5 of the internal serial**, not the label serial
+- Confirm you can reach the PVS at `PVS_IP` from the host running the container (`ping`, `curl`)
+- Confirm your firmware version still allows local API access (see compatibility section)
+
+### Connection refused / hangs
+- Verify the PVS is on the same network and the IP hasn't changed (set a DHCP reservation)
+- If using `network_mode: host`, the container shares the host's network — confirm the host can reach the PVS
+- Some PVS units only expose the API on the **installer port** (an Ethernet jack inside the unit) rather than the customer-facing LAN; in that case you may need a small Linux box (Raspberry Pi works) attached to that port
+
+### Dashboard shows "🌙 Nighttime idle"
+This is normal. SunPower micro-inverters communicate over the DC powerline; once panels stop producing, comms drop and every panel reports `STATE=error`. The dashboard detects this pattern and treats it as expected nighttime behavior.
+
+### Polling is loading my PVS too much
+Increase `REFRESH_SECS` in `.env` and restart. The default is 5 min, which is comparable to what the SunPower app does. Don't go below 300.
+
+## Credits
+
+The original PVS dashboard concept was popularized by **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)**, and `./sunpower.sh update` can pull upstream dashboard changes. This project diverges significantly (rewritten Flask proxy, SQLite history, SunVault battery support, energy-flow diagram, period-totals API, etc.) but the lineage is acknowledged.
+
+Reverse-engineering of PVS endpoints draws on years of community work in the [SunPower local-API discussions](https://github.com/scott1howard-cba/SunPower-PVS-Exporter/) and various forum threads.
+
+## Contributing
+
+Issues and PRs welcome. If you've successfully tested with a specific firmware version (working *or* not), please open an issue noting your firmware build so we can keep the compatibility section accurate.
+
+## Disclaimer
+
+This project is **not affiliated with, endorsed by, or sponsored by** SunPower Corporation, SunStrong Management, Complete Solaria, or any of their subsidiaries. "SunPower", "PVS", "PVS5", "PVS6", and "SunVault" are trademarks of their respective owners. This is an independent, community-developed monitoring tool. Use at your own risk; the authors accept no liability for any damage to your equipment or warranty implications of accessing the local API.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

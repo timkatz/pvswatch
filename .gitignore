@@ -21,6 +21,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code instructions (local-only, contains operator-specific notes)
+CLAUDE.md
+.claude/
+
 # Docker
 *.log
 # Large files

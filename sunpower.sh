@@ -26,7 +26,7 @@ fi
 IMAGE_NAME="sunpower-monitor"
 CONTAINER_NAME="sunpower-monitor"
 PORT="${DASHBOARD_PORT:-5001}"
-PVS_IP="${PVS_IP:-192.168.1.50}"
+PVS_IP="${PVS_IP:-}"
 PVS_USER="${PVS_USER:-ssm_owner}"
 PVS_PASS="${PVS_PASS:-}"
 

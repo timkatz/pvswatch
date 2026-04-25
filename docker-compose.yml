@@ -8,18 +8,20 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - PVS_IP=${PVS_IP:-192.168.1.50}
+      - PVS_IP=${PVS_IP:?PVS_IP must be set in .env}
       - PVS_USER=${PVS_USER:-ssm_owner}
-      - PVS_PASS=${PVS_PASS:-}
-      - PORT=${DASHBOARD_PORT:-5002}
+      - PVS_PASS=${PVS_PASS:?PVS_PASS must be set in .env}
+      - PORT=${DASHBOARD_PORT:-5001}
       - TIMEOUT_SECS=${TIMEOUT_SECS:-120}
-      - REFRESH_SECS=${REFRESH_SECS:-60}
+      - REFRESH_SECS=${REFRESH_SECS:-300}
+      - COST_PER_KWH=${COST_PER_KWH:-0.30}
+      - CO2_LBS_PER_KWH=${CO2_LBS_PER_KWH:-0.85}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DB_PATH=/data/solar_history.db
     volumes:
-      - ${DATA_DIR:-/mnt/user/appdata/sunstrong/data}:/data
+      - ${DATA_DIR:-./data}:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${DASHBOARD_PORT:-5002}/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${DASHBOARD_PORT:-5001}/health')"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -41,7 +43,7 @@ services:
       TS_STATE_DIR: /var/lib/tailscale
       TS_USERSPACE: "false"
     volumes:
-      - ${TS_STATE_DIR:-/mnt/user/appdata/sunstrong/tailscale-state}:/var/lib/tailscale
+      - ${TS_STATE_DIR:-./tailscale-state}:/var/lib/tailscale
       - /dev/net/tun:/dev/net/tun
     healthcheck:
       test: ["CMD", "sh", "-c", "tailscale status --json 2>/dev/null | grep -qE '\"Online\"\\s*:\\s*true'"]
@@ -63,6 +65,6 @@ services:
           echo "tailscale up failed (attempt $$i/12), retrying in 5s..."
           sleep 5
         done
-        tailscale serve --bg --https=443 http://127.0.0.1:${DASHBOARD_PORT:-5002}
+        tailscale serve --bg --https=443 http://127.0.0.1:${DASHBOARD_PORT:-5001}
         tail -f /dev/null
       '
