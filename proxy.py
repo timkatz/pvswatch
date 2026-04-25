@@ -805,13 +805,15 @@ def history():
             if solar_kwh < 0.01:
                 solar_kwh = max(0, (totals_row["avg_prod"] or 0) * elapsed_h)
             home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
-            # PVS net_p convention: positive = exporting to grid, negative = importing.
-            # Verified via energy balance: pv+battery_discharge-load = net_p.
+            # PVS net_p convention: positive = importing from grid, negative = exporting.
+            # Verified empirically (2026-04-25):
+            #   During outage pv=0.02 load=12.34 → net_kw=+12.32 (importing 12.3 kW)
+            #   Sunny day      pv=4.02 load=1.12 → net_kw=-2.89  (exporting 2.9 kW)
             net_kwh = (totals_row["avg_net"] or 0) * elapsed_h
             battery_net_kwh = (totals_row["avg_battery"] or 0) * elapsed_h  # +discharge, -charge
 
-            grid_import_kwh = max(0, -net_kwh)
-            grid_export_kwh = max(0, net_kwh)
+            grid_import_kwh = max(0, net_kwh)
+            grid_export_kwh = max(0, -net_kwh)
             avoided_kwh = min(solar_kwh, home_kwh)  # solar that offset grid use
             savings_dollars = avoided_kwh * COST_PER_KWH
             co2_lbs = solar_kwh * CO2_LBS_PER_KWH

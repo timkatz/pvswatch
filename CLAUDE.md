@@ -94,9 +94,9 @@ Resampling aims for ~300 data points per range.
   "solar_kwh": 50.4,        // production over period (lifetime_kwh delta when available)
   "home_kwh": 10.9,
   "battery_net_kwh": -29.9, // signed: positive = net discharge, negative = net charge
-  "grid_net_kwh": 12.2,     // signed: positive = exported, negative = imported (PVS net_p convention)
-  "grid_import_kwh": 0,     // = max(0, -grid_net_kwh)
-  "grid_export_kwh": 12.2,  // = max(0,  grid_net_kwh)
+  "grid_net_kwh": 12.2,     // signed: positive = imported, negative = exported (PVS net_p convention)
+  "grid_import_kwh": 12.2,  // = max(0,  grid_net_kwh)
+  "grid_export_kwh": 0,     // = max(0, -grid_net_kwh)
   "avoided_kwh": 10.9,      // min(solar_kwh, home_kwh)
   "savings_dollars": 3.27,  // avoided_kwh × COST_PER_KWH
   "co2_lbs": 42.8,          // solar_kwh × CO2_LBS_PER_KWH
@@ -112,7 +112,7 @@ Resampling aims for ~300 data points per range.
 
 Two SQLite tables in `solar_history.db`:
 
-- **`readings`** — One row per refresh: production/consumption kW, **net_kw (PVS net_p convention: + = exporting to grid, - = importing)** verified via energy balance `pv + battery_discharge - load = net_p`, voltage, frequency, power factor, panel health counts, and battery columns: `battery_kw` (`+` = discharging, `-` = charging), `battery_soc` (0–1), `backup_min`, `battery_lifetime_kwh`. Battery columns added 2026-04-25 via idempotent `ALTER TABLE` in `_init_db`.
+- **`readings`** — One row per refresh: production/consumption kW, **net_kw (PVS net_p convention: + = importing from grid, - = exporting)** — verified empirically (during outage `pv=0.02 load=12.34 → net=+12.32`; sunny `pv=4.02 load=1.12 → net=-2.89`). Also voltage, frequency, power factor, panel health counts, and battery columns: `battery_kw` (`+` = discharging, `-` = charging), `battery_soc` (0–1), `backup_min`, `battery_lifetime_kwh`. Battery columns added 2026-04-25 via idempotent `ALTER TABLE` in `_init_db`.
 - **`panel_readings`** — Per-inverter: serial, model, state, watts, DC/AC voltage, current, temperature
 
 Timestamps are Unix epochs (REAL). Both tables use PRIMARY KEY constraints for dedup.

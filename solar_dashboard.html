@@ -1103,11 +1103,11 @@ function applyTotals(t) {
   const bcls = bnet < -0.01 ? 'charge' : bnet > 0.01 ? 'discharge' : '';
   setMetric('v_battery', bk.value, bk.unit, scope, bsub, bcls);
 
-  // Grid net (PVS convention): positive = exported to grid, negative = imported
+  // Grid net (PVS convention, verified): positive = imported, negative = exported
   const gnet = t.grid_net_kwh || 0;
   const gk = fmtEnergy(Math.abs(gnet));
-  const gsub = gnet > 0.01 ? 'exported' : gnet < -0.01 ? 'imported' : 'balanced';
-  const gcls = gnet > 0.01 ? 'export' : gnet < -0.01 ? 'import' : '';
+  const gsub = gnet > 0.01 ? 'imported' : gnet < -0.01 ? 'exported' : 'balanced';
+  const gcls = gnet > 0.01 ? 'import' : gnet < -0.01 ? 'export' : '';
   setMetric('v_grid', gk.value, gk.unit, scope, gsub, gcls);
 }
 
@@ -1197,13 +1197,38 @@ document.getElementById('chartTabs').addEventListener('click', (e) => {
   document.querySelectorAll('#chartTabs .chart-tab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   currentRange = tab.dataset.range;
+  applyLiveModeUi(currentRange === 'live');
   if (currentRange === 'live') {
-    applyLive();   // Use latest live snapshot for hero
-    // Don't fetch history; chart stays on whatever it was last showing
+    applyLive();   // Hero cards from latest live snapshot
   } else {
     fetchHistory();
   }
 });
+
+// In LIVE mode, period-dependent things (chart, savings, independence)
+// don't make sense — hide them with a placeholder.
+function applyLiveModeUi(isLive) {
+  const canvas = document.getElementById('powerChart');
+  const emptyEl = document.getElementById('chartEmpty');
+  const indBadge = document.getElementById('independenceBadge');
+  const savings = document.getElementById('savingsSection');
+  const savingsScope = document.getElementById('savingsScope');
+  if (isLive) {
+    if (powerChart) { powerChart.destroy(); powerChart = null; }
+    canvas.style.display = 'none';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Live mode — pick a range (1H, 24H, 7D…) to see chart history.';
+    indBadge.style.display = 'none';
+    if (savings) savings.style.opacity = '0.4';
+    if (savingsScope) savingsScope.textContent = '— select a range —';
+    ['sv_dollars','sv_co2','sv_trees','sv_miles','sv_gallons'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.textContent = '—';
+    });
+  } else {
+    emptyEl.textContent = 'Collecting data… chart will appear once enough readings are stored.';
+    if (savings) savings.style.opacity = '1';
+  }
+}
 
 document.getElementById('chartModes').addEventListener('click', (e) => {
   const btn = e.target.closest('.chart-mode');
@@ -1279,11 +1304,11 @@ function renderChart(data) {
   let datasets, scaleY, tooltipUnit, chartType;
 
   if (currentMode === 'energy') {
-    // Stacked bars in kWh per bucket. Sign conventions (PVS native):
+    // Stacked bars in kWh per bucket. Sign conventions (PVS native, verified):
     //   battery_kw > 0 = discharging  → positive bar (energy added to home)
     //   battery_kw < 0 = charging     → negative bar (energy stored away)
-    //   net_kw > 0     = exporting    → negative bar (energy sent to grid)
-    //   net_kw < 0     = importing    → positive bar (energy from grid)
+    //   net_kw > 0     = importing    → positive bar (energy from grid)
+    //   net_kw < 0     = exporting    → negative bar (energy sent to grid)
     const sampleSecs = data.resample_seconds || 300;
     const hPerBucket = sampleSecs / 3600;
     const round3 = v => Math.round(v * 1000) / 1000;
@@ -1292,8 +1317,8 @@ function renderChart(data) {
     const homeKwh          = consKw.map(v => round3(v * hPerBucket));
     const batDischargeKwh  = batKw.map(v => v > 0 ? round3( v * hPerBucket) : 0);
     const batChargeKwh     = batKw.map(v => v < 0 ? round3( v * hPerBucket) : 0);  // negative
-    const gridImportKwh    = netKw.map(v => v < 0 ? round3(-v * hPerBucket) : 0);  // positive
-    const gridExportKwh    = netKw.map(v => v > 0 ? round3(-v * hPerBucket) : 0);  // negative
+    const gridImportKwh    = netKw.map(v => v > 0 ? round3( v * hPerBucket) : 0);  // positive
+    const gridExportKwh    = netKw.map(v => v < 0 ? round3( v * hPerBucket) : 0);  // negative
 
     chartType = 'bar';
     tooltipUnit = 'kWh';
