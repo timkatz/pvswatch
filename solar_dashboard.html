@@ -451,25 +451,30 @@
     .savings-item .label { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.2; padding: 0 0.1rem; }
 
     /* ── Chart mode toggle (ENERGY/POWER) ──────────
-       Box model intentionally identical to .chart-tab so they share a
-       baseline when both sit in the same flex row. */
-    .chart-modes { display: inline-flex; gap: 0; }
-    .chart-mode {
+       Shares all dimensional rules with .chart-tab via the
+       .pill-btn base class so the two pills sit on an identical
+       baseline regardless of browser button defaults. */
+    .pill-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 28px;
+      padding: 0 0.75rem;
+      font-family: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: 0.02em;
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text-dim);
-      padding: 0.3rem 0.75rem;
-      font-size: 0.75rem;
-      font-weight: 600;
       cursor: pointer;
-      letter-spacing: 0.02em;
-      line-height: 1;
       box-sizing: border-box;
       transition: background 0.2s, color 0.2s, border-color 0.2s;
     }
+    .chart-modes { display: inline-flex; gap: 0; }
     .chart-mode:first-child { border-radius: 9999px 0 0 9999px; border-right-width: 0; }
     .chart-mode:last-child  { border-radius: 0 9999px 9999px 0; }
-    .chart-tab { line-height: 1; box-sizing: border-box; }
     .chart-mode.active { background: var(--accent); color: #000; border-color: var(--accent); }
     .chart-mode:hover:not(.active) { color: var(--text); background: var(--bg-card-hover); }
 
@@ -584,18 +589,7 @@
       gap: 0.35rem;
       margin-bottom: 0.75rem;
     }
-    .chart-tab {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-dim);
-      border-radius: 9999px;
-      padding: 0.3rem 0.75rem;
-      font-size: 0.75rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s, color 0.2s, border-color 0.2s;
-      letter-spacing: 0.02em;
-    }
+    .chart-tab { border-radius: 9999px; }
     .chart-tab:hover { background: var(--bg-card-hover); color: var(--text); }
     .chart-tab.active {
       background: var(--accent);
@@ -684,19 +678,19 @@
       <h2>Power History</h2>
       <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;justify-content:flex-end">
         <div class="chart-modes" id="chartModes">
-          <button class="chart-mode active" data-mode="power">POWER</button>
-          <button class="chart-mode" data-mode="energy">ENERGY</button>
+          <button class="pill-btn chart-mode active" data-mode="power">POWER</button>
+          <button class="pill-btn chart-mode" data-mode="energy">ENERGY</button>
         </div>
         <div class="chart-tabs" id="chartTabs">
-          <button class="chart-tab" data-range="live">LIVE</button>
-          <button class="chart-tab" data-range="1h">1H</button>
-          <button class="chart-tab" data-range="6h">6H</button>
-          <button class="chart-tab active" data-range="24h">24H</button>
-          <button class="chart-tab" data-range="7d">7D</button>
-          <button class="chart-tab" data-range="30d">30D</button>
-          <button class="chart-tab" data-range="90d">90D</button>
-          <button class="chart-tab" data-range="1y">1Y</button>
-          <button class="chart-tab" data-range="all">ALL</button>
+          <button class="pill-btn chart-tab" data-range="live">LIVE</button>
+          <button class="pill-btn chart-tab" data-range="1h">1H</button>
+          <button class="pill-btn chart-tab" data-range="6h">6H</button>
+          <button class="pill-btn chart-tab active" data-range="24h">24H</button>
+          <button class="pill-btn chart-tab" data-range="7d">7D</button>
+          <button class="pill-btn chart-tab" data-range="30d">30D</button>
+          <button class="pill-btn chart-tab" data-range="90d">90D</button>
+          <button class="pill-btn chart-tab" data-range="1y">1Y</button>
+          <button class="pill-btn chart-tab" data-range="all">ALL</button>
         </div>
       </div>
     </div>
@@ -839,9 +833,9 @@
         <div class="modal-stat"><div class="label">Latest power</div><div class="value" id="pm_latest">—</div></div>
       </div>
       <div class="modal-tabs" id="pm_tabs">
-        <button class="chart-tab active" data-range="24h">DAY</button>
-        <button class="chart-tab" data-range="7d">WEEK</button>
-        <button class="chart-tab" data-range="30d">MONTH</button>
+        <button class="pill-btn chart-tab active" data-range="24h">DAY</button>
+        <button class="pill-btn chart-tab" data-range="7d">WEEK</button>
+        <button class="pill-btn chart-tab" data-range="30d">MONTH</button>
       </div>
       <div class="modal-chart-wrap"><canvas id="pm_chart"></canvas></div>
       <div style="margin-top:0.6rem;font-size:0.7rem;color:var(--text-dim)" id="pm_meta"></div>
