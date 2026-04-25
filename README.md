@@ -2,6 +2,19 @@
 
 A self-hosted, single-container web dashboard for SunPower **PVS5 / PVS6** solar gateways. Talks to the gateway over your LAN, records its time-series data to SQLite, and serves a real-time dashboard with charts, per-panel detail, SunVault battery status, and a live energy-flow diagram. No cloud dependency — your data stays on your network.
 
+![Dashboard overview](docs/screenshots/dashboard-overview.png)
+
+<table>
+<tr>
+<td width="60%"><img src="docs/screenshots/live-flow.png" alt="Live power-flow diagram"></td>
+<td width="40%"><img src="docs/screenshots/mobile-overview.png" alt="Mobile view"></td>
+</tr>
+<tr>
+<td align="center"><sub>Live energy-flow diagram (LIVE tab)</sub></td>
+<td align="center"><sub>Responsive mobile layout</sub></td>
+</tr>
+</table>
+
 ## Why this exists
 
 In 2024, **SunPower filed for bankruptcy** and was acquired by **SunStrong Management** (Complete Solaria), which now operates the residential fleet. As part of that transition, the legacy **MySunPower web dashboard was retired** and the official mobile app became the only sanctioned interface for homeowners.
