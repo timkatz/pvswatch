@@ -1320,10 +1320,12 @@ function applyLiveModeUi(isLive) {
   const indBadge = document.getElementById('independenceBadge');
   const savings = document.getElementById('savingsSection');
   const savingsScope = document.getElementById('savingsScope');
+  const chartContainer = document.querySelector('.chart-container');
   if (isLive) {
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     canvas.style.display = 'none';
     emptyEl.style.display = 'none';
+    if (chartContainer) chartContainer.style.display = 'none';
     flowEl.style.display = 'flex';
     indBadge.style.display = 'none';
     if (savings) savings.style.opacity = '0.35';
@@ -1334,6 +1336,7 @@ function applyLiveModeUi(isLive) {
     renderFlow();
   } else {
     flowEl.style.display = 'none';
+    if (chartContainer) chartContainer.style.display = '';
     emptyEl.textContent = 'Collecting data… chart will appear once enough readings are stored.';
     if (savings) savings.style.opacity = '1';
   }
