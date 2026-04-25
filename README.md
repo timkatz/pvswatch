@@ -6,7 +6,7 @@ A self-hosted, single-container web dashboard for SunPower **PVS5 / PVS6** solar
 
 <table>
 <tr>
-<td width="60%"><img src="docs/screenshots/live-flow.png" alt="Live power-flow diagram"></td>
+<td width="60%"><img src="docs/screenshots/live-flow.gif" alt="Live power-flow diagram"></td>
 <td width="40%"><img src="docs/screenshots/mobile-overview.png" alt="Mobile view"></td>
 </tr>
 <tr>
@@ -96,7 +96,25 @@ cp .env.example .env
 
 ### 2. Start the container
 
-**With the convenience wrapper (macOS/Linux):**
+**Option A — use the prebuilt multi-arch image (recommended):**
+
+A `docker-compose.yml` snippet that pulls from GHCR (no local build needed):
+
+```yaml
+services:
+  monitor:
+    image: ghcr.io/timkatz/sunstrong:latest
+    container_name: sunstrong
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./data:/data
+```
+
+Then `docker compose up -d`.
+
+**Option B — build from source with the convenience wrapper:**
 
 ```bash
 ./sunpower.sh start    # builds and starts
@@ -104,7 +122,7 @@ cp .env.example .env
 ./sunpower.sh open     # open the dashboard in your browser
 ```
 
-**Or directly with Docker Compose:**
+**Option C — build from source with Docker Compose directly:**
 
 ```bash
 docker compose up -d --build
@@ -208,6 +226,14 @@ This is normal. SunPower micro-inverters communicate over the DC powerline; once
 
 ### Polling is loading my PVS too much
 Increase `REFRESH_SECS` in `.env` and restart. The default is 5 min, which is comparable to what the SunPower app does. Don't go below 300.
+
+## Related projects
+
+If SunStrong's standalone dashboard isn't quite what you're after, the PVS community has built other tools that talk to the same local API and may be a better fit:
+
+- **[smcneece/ha-esunpower](https://github.com/smcneece/ha-esunpower)** — A native Home Assistant integration. If you already run HA, this surfaces production / consumption / battery / per-panel data as HA sensors directly, no proxy in between. SunStrong and ha-esunpower can run side-by-side against the same PVS without conflict.
+- **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)** — The original lightweight web monitor that this project descended from.
+- **[scott1howard-cba/SunPower-PVS-Exporter](https://github.com/scott1howard-cba/SunPower-PVS-Exporter)** — Prometheus exporter for the PVS local API; pair with Grafana for time-series dashboards.
 
 ## Credits
 

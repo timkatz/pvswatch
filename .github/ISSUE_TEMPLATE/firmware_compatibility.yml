@@ -1,0 +1,63 @@
+name: Firmware compatibility report
+description: Report whether your PVS firmware works (or doesn't) with this monitor — helps build the compatibility matrix.
+labels: ["firmware-compat"]
+title: "[Firmware] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SunPower firmware behavior changes frequently and there's no central source
+        of truth. Reports from real users — both **working** and **broken** — let us
+        keep the README's compatibility section accurate.
+
+  - type: input
+    id: pvs_model
+    attributes:
+      label: PVS model
+      placeholder: "PVS6"
+    validations:
+      required: true
+
+  - type: input
+    id: pvs_firmware
+    attributes:
+      label: Exact PVS firmware version
+      description: From `/sys/info/sw_rev` or the `swver` field — full string please.
+      placeholder: "e.g. 2024.04, Build 60100"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: works
+    attributes:
+      label: Does this monitor work on your firmware?
+      options:
+        - "Yes, fully working"
+        - "Partially — some endpoints work, some don't (describe below)"
+        - "No, local API is locked down"
+    validations:
+      required: true
+
+  - type: input
+    id: last_update
+    attributes:
+      label: When did your PVS last receive a firmware update? (approx.)
+      placeholder: "e.g. October 2025, never since install in 2022"
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How are you connected to the PVS?
+      options:
+        - "Customer LAN port (Ethernet on the outside of the box)"
+        - "Installer port (hidden/inside)"
+        - "WiFi access point exposed by the PVS"
+        - "Something else"
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: |
+        Anything useful — which endpoints work and which don't, error messages
+        from the test curl, install date, model variant, etc.

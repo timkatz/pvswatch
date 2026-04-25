@@ -179,7 +179,7 @@ def _record_reading(devices_json_str, livedata=None):
     panels_error = num_panels - panels_working
 
     ts = time.time()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     try:
         with _db_lock:

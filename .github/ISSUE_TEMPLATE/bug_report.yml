@@ -1,0 +1,76 @@
+name: Bug report
+description: Something isn't working the way the README says it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! The firmware version is critical
+        — most "it doesn't work at all" reports come down to a PVS firmware that has
+        locked down the local API.
+
+  - type: input
+    id: pvs_model
+    attributes:
+      label: PVS model
+      description: PVS5 or PVS6
+      placeholder: "PVS6"
+    validations:
+      required: true
+
+  - type: input
+    id: pvs_firmware
+    attributes:
+      label: PVS firmware version
+      description: |
+        Find it via `curl http://<PVS_IP>/cgi-bin/dl_cgi/getvarserver?vars=/sys/info/sw_rev`
+        (or the `swver` field on `/devices/list`). Report the full version string,
+        e.g. `2024.04, Build 60100`.
+      placeholder: "e.g. 2024.04, Build 60100"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: api_test
+    attributes:
+      label: Does the README's curl test return JSON?
+      description: |
+        From the same machine running this monitor, does
+        `curl -u "ssm_owner:LAST5" http://<PVS_IP>/cgi-bin/dl_cgi/devices/list`
+        return a JSON body (after a 30-60 s wait)?
+      options:
+        - "Yes, returns JSON"
+        - "No, 401/403 (auth failure)"
+        - "No, 404 (endpoint missing)"
+        - "No, hangs / times out"
+        - "No, connection refused"
+        - "Haven't tested"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug, including what you expected vs. what you observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Container logs
+      description: Output of `docker logs sunstrong --tail 100` (or `./sunpower.sh logs`). Redact PVS_PASS if it appears.
+      render: shell
+
+  - type: input
+    id: deploy_env
+    attributes:
+      label: Where you're running it
+      placeholder: "e.g. macOS Docker Desktop, Unraid, Synology, Raspberry Pi 4"
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Network setup, recent firmware updates, related issues, etc.
