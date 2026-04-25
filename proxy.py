@@ -817,13 +817,25 @@ def history():
     """
     range_str = request.args.get("range", "24h")
     resample = request.args.get("resample")
+    # Optional explicit window — used by the dashboard for calendar-based
+    # ranges ("today", "yesterday") so the browser's local-tz midnight
+    # boundaries are authoritative.
+    start_param = request.args.get("start")
+    end_param = request.args.get("end")
 
     # Parse range. "all" = since first reading.
     range_map = {
         "1m": 60, "1h": 3600, "6h": 21600, "24h": 86400,
         "7d": 604800, "30d": 2592000, "90d": 7776000, "1y": 31536000,
     }
-    if range_str == "all":
+    if start_param and end_param:
+        try:
+            cutoff = float(start_param)
+            end_ts = float(end_param)
+            range_secs = max(60, int(end_ts - cutoff))
+        except ValueError:
+            return Response("Invalid start/end timestamps", status=400)
+    elif range_str == "all":
         # Compute span from earliest reading
         try:
             conn0 = sqlite3.connect(DB_PATH)
@@ -832,8 +844,12 @@ def history():
             range_secs = max(60, int(time.time() - (earliest_row[0] or time.time())))
         except Exception:
             range_secs = 86400
+        end_ts = time.time()
+        cutoff = end_ts - range_secs
     else:
         range_secs = range_map.get(range_str, 86400)
+        end_ts = time.time()
+        cutoff = end_ts - range_secs
 
     # Auto-resample: aim for ~200-400 points max
     if resample:
@@ -854,8 +870,6 @@ def history():
             sample_secs = 1800
         else:
             sample_secs = 3600
-
-    cutoff = time.time() - range_secs
 
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -885,10 +899,10 @@ def history():
                 AVG(panels_error) as panels_error,
                 COUNT(*) as samples
             FROM readings
-            WHERE ts > ?
+            WHERE ts > ? AND ts <= ?
             GROUP BY bucket
             ORDER BY bucket
-        """, (cutoff,)).fetchall()
+        """, (cutoff, end_ts)).fetchall()
 
         # Period totals — compute kWh for the actual data span (not the requested
         # window, which may extend before our earliest reading). Prefer
@@ -911,8 +925,8 @@ def history():
                 MAX(CASE WHEN lifetime_kwh IS NOT NULL THEN ts END) as solar_lt_t_end,
                 MIN(CASE WHEN home_lifetime_kwh IS NOT NULL THEN ts END) as home_lt_t_start,
                 MAX(CASE WHEN home_lifetime_kwh IS NOT NULL THEN ts END) as home_lt_t_end
-            FROM readings WHERE ts > ?
-        """, (cutoff,)).fetchone()
+            FROM readings WHERE ts > ? AND ts <= ?
+        """, (cutoff, end_ts)).fetchone()
 
         totals = None
         if totals_row and totals_row["n"] and totals_row["n"] > 1:

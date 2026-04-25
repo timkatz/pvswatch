@@ -720,6 +720,8 @@
         </div>
         <div class="chart-tabs" id="chartTabs">
           <button class="pill-btn chart-tab" data-range="live">LIVE</button>
+          <button class="pill-btn chart-tab" data-range="today">TODAY</button>
+          <button class="pill-btn chart-tab" data-range="yesterday">YESTERDAY</button>
           <button class="pill-btn chart-tab" data-range="1h">1H</button>
           <button class="pill-btn chart-tab" data-range="6h">6H</button>
           <button class="pill-btn chart-tab active" data-range="24h">24H</button>
@@ -974,13 +976,31 @@ function fmtBackup(min) {
 
 // Map range key to display label
 const RANGE_LABEL = {
-  live: 'live', '1h': '1 hr', '6h': '6 hrs', '24h': '24 hrs',
+  live: 'live', today: 'today', yesterday: 'yesterday',
+  '1h': '1 hr', '6h': '6 hrs', '24h': '24 hrs',
   '7d': '7 days', '30d': '30 days', '90d': '90 days', '1y': '1 yr', all: 'all time',
 };
 const RANGE_SECS = {
-  live: 0, '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800,
+  live: 0, today: 86400, yesterday: 86400,
+  '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800,
   '30d': 2592000, '90d': 7776000, '1y': 31536000, all: Infinity,
 };
+
+// For calendar-based ranges, compute [start, end] in browser-local time.
+// Returns null for non-calendar ranges (server uses range= alone).
+function calendarWindow(rangeKey) {
+  const now = new Date();
+  if (rangeKey === 'today') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    return { start: Math.floor(start.getTime() / 1000), end: Math.floor(now.getTime() / 1000) };
+  }
+  if (rangeKey === 'yesterday') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    return { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) };
+  }
+  return null;
+}
 
 async function fetchData() {
   if (stopFetch) return;
@@ -1551,7 +1571,13 @@ async function refreshAvailableRanges() {
     const availableSecs = (Date.now() / 1000) - earliest;
     document.querySelectorAll('#chartTabs .chart-tab').forEach(t => {
       const r = t.dataset.range;
-      if (r === 'live' || r === 'all') { t.disabled = false; return; }
+      if (r === 'live' || r === 'all' || r === 'today') { t.disabled = false; return; }
+      if (r === 'yesterday') {
+        // Need data going back to yesterday's local midnight to render anything meaningful
+        const win = calendarWindow('yesterday');
+        t.disabled = win ? earliest > win.start : false;
+        return;
+      }
       t.disabled = (RANGE_SECS[r] || 0) > availableSecs;
     });
   } catch (e) { /* ignore */ }
@@ -1561,7 +1587,11 @@ async function refreshAvailableRanges() {
 async function fetchHistory() {
   if (currentRange === 'live') return;  // Live mode is driven by /devices
   try {
-    const res = await fetch('/history?range=' + currentRange);
+    const win = calendarWindow(currentRange);
+    const url = win
+      ? `/history?range=${currentRange}&start=${win.start}&end=${win.end}`
+      : `/history?range=${currentRange}`;
+    const res = await fetch(url);
     if (!res.ok) return;
     const data = await res.json();
     lastTotals = data.period_totals;
