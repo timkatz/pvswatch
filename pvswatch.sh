@@ -23,8 +23,8 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 # ── Configuration ──────────────────────────────────────────────────────
-IMAGE_NAME="sunpower-monitor"
-CONTAINER_NAME="sunpower-monitor"
+IMAGE_NAME="pvswatch"
+CONTAINER_NAME="pvswatch"
 PORT="${DASHBOARD_PORT:-5001}"
 PVS_IP="${PVS_IP:-}"
 PVS_USER="${PVS_USER:-ssm_owner}"
@@ -33,7 +33,7 @@ PVS_PASS="${PVS_PASS:-}"
 # ── Functions ─────────────────────────────────────────────────────────
 usage() {
     cat <<EOF
-SunPower Web Monitor — Docker manager
+PVS Watch — Docker manager
 
 Usage: $(basename "$0") <command>
 

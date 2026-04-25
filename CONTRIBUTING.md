@@ -1,4 +1,4 @@
-# Contributing to SunStrong
+# Contributing to PVS Watch
 
 Thanks for your interest! This is a small project with a focused scope, but
 contributions — bug reports, firmware-compatibility data points, code, and
@@ -43,7 +43,7 @@ you'll spend most of your time in:
 
 Releases are cut as GitHub Releases against semver tags (`v1.2.3`). Pushing a
 tag triggers `.github/workflows/docker-publish.yml`, which builds and pushes
-the multi-arch container image to `ghcr.io/<owner>/sunstrong` with `latest`,
+the multi-arch container image to `ghcr.io/<owner>/pvswatch` with `latest`,
 `v1.2.3`, `1.2`, and `1` tags.
 
 ## Code of conduct

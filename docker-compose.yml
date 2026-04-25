@@ -1,10 +1,10 @@
-name: sunstrong
+name: pvswatch
 
 services:
   monitor:
     build: .
-    image: sunstrong:latest
-    container_name: sunstrong
+    image: pvswatch:latest
+    container_name: pvswatch
     restart: unless-stopped
     network_mode: host
     environment:
@@ -29,7 +29,7 @@ services:
 
   tailscale:
     image: tailscale/tailscale:stable
-    container_name: sunstrong-tailscale
+    container_name: pvswatch-tailscale
     restart: unless-stopped
     depends_on:
       monitor:
@@ -39,7 +39,7 @@ services:
       - NET_ADMIN
       - SYS_MODULE
     environment:
-      TS_HOSTNAME: ${TS_HOSTNAME:-sunstrong}
+      TS_HOSTNAME: ${TS_HOSTNAME:-pvswatch}
       TS_STATE_DIR: /var/lib/tailscale
       TS_USERSPACE: "false"
     volumes:

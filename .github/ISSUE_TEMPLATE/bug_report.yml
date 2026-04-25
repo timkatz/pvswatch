@@ -60,7 +60,7 @@ body:
     id: logs
     attributes:
       label: Container logs
-      description: Output of `docker logs sunstrong --tail 100` (or `./sunpower.sh logs`). Redact PVS_PASS if it appears.
+      description: Output of `docker logs pvswatch --tail 100` (or `./pvswatch.sh logs`). Redact PVS_PASS if it appears.
       render: shell
 
   - type: input

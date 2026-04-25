@@ -1,4 +1,4 @@
-# SunStrong — Self-Hosted SunPower PVS5/PVS6 Solar Monitor
+# PVS Watch — Self-Hosted SunPower PVS5/PVS6 Solar Monitor
 
 A self-hosted, single-container web dashboard for SunPower **PVS5 / PVS6** solar gateways. Talks to the gateway over your LAN, records its time-series data to SQLite, and serves a real-time dashboard with charts, per-panel detail, SunVault battery status, and a live energy-flow diagram. No cloud dependency — your data stays on your network.
 
@@ -103,8 +103,8 @@ A `docker-compose.yml` snippet that pulls from GHCR (no local build needed):
 ```yaml
 services:
   monitor:
-    image: ghcr.io/timkatz/sunstrong:latest
-    container_name: sunstrong
+    image: ghcr.io/timkatz/pvswatch:latest
+    container_name: pvswatch
     restart: unless-stopped
     network_mode: host
     env_file: .env
@@ -117,9 +117,9 @@ Then `docker compose up -d`.
 **Option B — build from source with the convenience wrapper:**
 
 ```bash
-./sunpower.sh start    # builds and starts
-./sunpower.sh logs     # follow logs
-./sunpower.sh open     # open the dashboard in your browser
+./pvswatch.sh start    # builds and starts
+./pvswatch.sh logs     # follow logs
+./pvswatch.sh open     # open the dashboard in your browser
 ```
 
 **Option C — build from source with Docker Compose directly:**
@@ -137,7 +137,7 @@ The first request can take 60–90 seconds — the PVS `/devices/list` endpoint 
 The included `tailscale` sidecar in `docker-compose.yml` will expose the dashboard at `https://<TS_HOSTNAME>.<your-tailnet>.ts.net/` from any device on your tailnet. On first run, check the sidecar logs for the auth URL:
 
 ```bash
-docker logs sunstrong-tailscale
+docker logs pvswatch-tailscale
 ```
 
 If you don't want Tailscale, simply remove or comment out the `tailscale:` service in `docker-compose.yml`.
@@ -158,7 +158,7 @@ All settings come from `.env`. Required fields are marked.
 | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `COST_PER_KWH` | `0.30` | Utility rate ($/kWh) for the Savings card |
 | `CO2_LBS_PER_KWH` | `0.85` | Grid emissions factor for the Savings card |
-| `TS_HOSTNAME` | `sunstrong` | Tailscale device name (sidecar only) |
+| `TS_HOSTNAME` | `pvswatch` | Tailscale device name (sidecar only) |
 | `TS_AUTHKEY` | — | Optional Tailscale auth key for unattended startup |
 
 ⚠️ **Polling rate**: don't set `REFRESH_SECS` lower than 300 (5 min). Each poll involves the slow `/devices/list` call (~30–45 s); going faster causes overlapping requests and added load on the gateway.
@@ -191,7 +191,7 @@ Schema migrations are idempotent `ALTER TABLE` calls in `_init_db()` — safe to
 
 ## Local management script
 
-`sunpower.sh` is a thin wrapper around `docker compose`:
+`pvswatch.sh` is a thin wrapper around `docker compose`:
 
 ```
 build     Build (or rebuild) the Docker image
@@ -229,15 +229,15 @@ Increase `REFRESH_SECS` in `.env` and restart. The default is 5 min, which is co
 
 ## Related projects
 
-If SunStrong's standalone dashboard isn't quite what you're after, the PVS community has built other tools that talk to the same local API and may be a better fit:
+If PVS Watch's standalone dashboard isn't quite what you're after, the PVS community has built other tools that talk to the same local API and may be a better fit:
 
-- **[smcneece/ha-esunpower](https://github.com/smcneece/ha-esunpower)** — A native Home Assistant integration. If you already run HA, this surfaces production / consumption / battery / per-panel data as HA sensors directly, no proxy in between. SunStrong and ha-esunpower can run side-by-side against the same PVS without conflict.
+- **[smcneece/ha-esunpower](https://github.com/smcneece/ha-esunpower)** — A native Home Assistant integration. If you already run HA, this surfaces production / consumption / battery / per-panel data as HA sensors directly, no proxy in between. PVS Watch and ha-esunpower can run side-by-side against the same PVS without conflict.
 - **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)** — The original lightweight web monitor that this project descended from.
 - **[scott1howard-cba/SunPower-PVS-Exporter](https://github.com/scott1howard-cba/SunPower-PVS-Exporter)** — Prometheus exporter for the PVS local API; pair with Grafana for time-series dashboards.
 
 ## Credits
 
-The original PVS dashboard concept was popularized by **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)** — early versions of this project started from that codebase. SunStrong has since diverged significantly (rewritten Flask proxy, SQLite history, SunVault battery support, energy-flow diagram, period-totals API, per-panel drilldown, etc.) but the lineage is acknowledged.
+The original PVS dashboard concept was popularized by **[thomastech/SunPower-Web-Monitor](https://github.com/thomastech/SunPower-Web-Monitor)** — early versions of this project started from that codebase. PVS Watch has since diverged significantly (rewritten Flask proxy, SQLite history, SunVault battery support, energy-flow diagram, period-totals API, per-panel drilldown, etc.) but the lineage is acknowledged.
 
 Reverse-engineering of PVS endpoints draws on years of community work in the [SunPower local-API discussions](https://github.com/scott1howard-cba/SunPower-PVS-Exporter/) and various forum threads.
 
