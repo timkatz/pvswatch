@@ -457,19 +457,24 @@
       border: 1px solid var(--border);
       border-radius: 9999px;
       overflow: hidden;
-      margin-right: 0.5rem;
+      /* Match the height of .chart-tab buttons exactly so they sit on the
+         same visual baseline. .chart-tab is 0.75rem font-size + 0.3rem ×
+         2 vertical padding + 1px border each side ≈ same as one .chart-mode
+         inside this 1px-bordered container. */
     }
     .chart-mode {
       background: transparent;
       border: 0;
       color: var(--text-dim);
-      padding: 0.3rem 0.85rem;
-      font-size: 0.7rem;
-      font-weight: 700;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
       cursor: pointer;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.02em;
       transition: background 0.2s, color 0.2s;
+      line-height: 1;
     }
+    .chart-tab { line-height: 1; }
     .chart-mode.active { background: var(--accent); color: #000; }
     .chart-mode:hover:not(.active) { color: var(--text); background: var(--bg-card-hover); }
 
@@ -907,12 +912,11 @@ function fmtEnergy(kwh) {
   return { value: kwh.toFixed(1), unit: 'kWh' };
 }
 
-// Power formatter for the kW range. Negative shown as |abs|.
+// Power formatter — always in kW with 1 decimal (matches SunPower app
+// convention; e.g. 0.1 kW, 1.8 kW, 12.3 kW). Negative shown as |abs|.
 function fmtPower(kw) {
   if (kw === null || kw === undefined || isNaN(kw)) return { value: '—', unit: '' };
-  const abs = Math.abs(kw);
-  if (abs < 1)    return { value: Math.round(abs * 1000).toLocaleString(), unit: 'W' };
-  return { value: abs.toFixed(2), unit: 'kW' };
+  return { value: Math.abs(kw).toFixed(1), unit: 'kW' };
 }
 
 function fmtBackup(min) {
@@ -1237,7 +1241,7 @@ function applyLive() {
   const gp = fmtPower(gridImportKw);
   const gsub = isBalanced ? 'balanced' : importing ? 'importing' : 'exporting';
   const gcls = isBalanced ? '' : importing ? 'import' : 'export';
-  setMetric('v_grid', isBalanced ? '0' : gp.value, isBalanced ? 'W' : gp.unit, scope, gsub, gcls);
+  setMetric('v_grid', isBalanced ? '0.0' : gp.value, 'kW', scope, gsub, gcls);
 }
 
 // Render hero cards from /history period_totals (kWh)
@@ -1344,44 +1348,10 @@ function renderBattery() {
   const b = fmtBackup(s.backupMin);
   backupV.innerHTML = b.value + '<span class="unit"> ' + b.unit + '</span>';
 
-  // Per-unit detail (if available from /sys/devices/ess/{0,1}/...)
-  const unitsEl = document.getElementById('batteryUnits');
-  if (!s.units || !s.units.length) { unitsEl.innerHTML = ''; return; }
-  unitsEl.innerHTML = s.units.map(u => {
-    const soc = Math.round((u.soc || 0) * 100);
-    const flowKw = Math.abs(u.p_kw || 0);
-    let flowText = '·  Idle';
-    let flowCls  = '';
-    if ((u.p_kw || 0) > 0.01)  { flowText = '↓ Discharging ' + flowKw.toFixed(2) + ' kW'; flowCls = 'discharging'; }
-    if ((u.p_kw || 0) < -0.01) { flowText = '↑ Charging '   + flowKw.toFixed(2) + ' kW'; flowCls = 'charging'; }
-    const soh = u.soh != null ? Math.round(u.soh * 100) + '%' : '—';
-    const vBatt = u.v_batt != null ? u.v_batt.toFixed(1) + ' V' : '—';
-    const tempCell = u.temp_c != null ? u.temp_c.toFixed(1) + '°C' : '—';
-    const lifeIn = u.lifetime_charged_kwh    != null ? fmtEnergy(u.lifetime_charged_kwh) : { value:'—', unit:'' };
-    const lifeOut = u.lifetime_discharged_kwh != null ? fmtEnergy(u.lifetime_discharged_kwh) : { value:'—', unit:'' };
-    const opMode = (u.op_mode || '').replace(/_/g,' ').toLowerCase();
-    return `<div class="unit-card">
-      <div class="unit-head">
-        <span class="name">Unit ${u.index + 1} <span style="color:var(--text-dim);font-weight:500;font-size:0.7rem">· ${u.model || ''}</span></span>
-        <span class="opmode">${opMode}</span>
-      </div>
-      <div>
-        <div style="display:flex;justify-content:space-between;font-size:0.7rem;margin-bottom:0.2rem">
-          <span style="color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;font-weight:600">SoC ${soc}%</span>
-          <span class="unit-flow ${flowCls}" style="font-weight:700">${flowText}</span>
-        </div>
-        <div class="unit-soc-bar"><div class="unit-soc-fill" style="width:${soc}%"></div></div>
-      </div>
-      <div class="unit-stats">
-        <div class="unit-stat"><div class="k">SoH</div><div class="v">${soh}</div></div>
-        <div class="unit-stat"><div class="k">Battery V</div><div class="v">${vBatt}</div></div>
-        <div class="unit-stat"><div class="k">Cell temp</div><div class="v">${tempCell}</div></div>
-        <div class="unit-stat"><div class="k">Inverter</div><div class="v">${u.temp_inv_c != null ? u.temp_inv_c.toFixed(1) + '°C' : '—'}</div></div>
-        <div class="unit-stat"><div class="k">Lifetime in</div><div class="v">${lifeIn.value} <span style="color:var(--text-dim);font-weight:500">${lifeIn.unit}</span></div></div>
-        <div class="unit-stat"><div class="k">Lifetime out</div><div class="v">${lifeOut.value} <span style="color:var(--text-dim);font-weight:500">${lifeOut.unit}</span></div></div>
-      </div>
-    </div>`;
-  }).join('');
+  // Per-unit detail intentionally hidden — the SunPower app shows
+  // combined-only and per-unit drilldown is noise for daily use. The data
+  // is still fetched and exposed on /devices for anyone who wants it.
+  document.getElementById('batteryUnits').innerHTML = '';
 }
 
 // ── Chart-tab + chart-mode handlers ─────────────────────────────────
@@ -1482,7 +1452,7 @@ function renderFlow() {
   const gridArr  = document.getElementById('flow_grid_arr');
   const gridS    = document.getElementById('flow_grid_s');
   document.getElementById('flow_grid_v').innerHTML = (Math.abs(gridImpKw) < 0.05)
-    ? '0 <span class="unit">W</span>' : fmt(gridImpKw);
+    ? '0.0 <span class="unit">kW</span>' : fmt(gridImpKw);
   if (gridImpKw > 0.05) {
     gridCard.className = 'flow-card grid importing';
     gridArr.textContent = '↓'; gridArr.className = 'flow-arrow grid-in';
