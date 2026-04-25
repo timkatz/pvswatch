@@ -481,6 +481,34 @@
     /* tab-disabled = not enough history yet */
     .chart-tab[disabled] { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
+    /* Wrapper for the chart controls — used by section-head + modal */
+    .chart-controls {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    /* Phones: stack title above controls and let the time-range strip
+       scroll horizontally instead of wrapping into a tall stack. */
+    @media (max-width: 640px) {
+      .section-head { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+      .chart-controls { flex-wrap: nowrap; align-items: stretch; gap: 0.4rem; justify-content: flex-start; }
+      .chart-modes { flex: 0 0 auto; }
+      .chart-tabs {
+        flex: 1 1 auto;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px; /* room for momentum scroll shadow */
+      }
+      .chart-tabs::-webkit-scrollbar { display: none; }
+      .chart-tabs .pill-btn { flex: 0 0 auto; }
+      .chart-modes + .chart-tabs { margin-left: 0; padding-left: 0.5rem; }
+      .pill-btn { height: 30px; padding: 0 0.7rem; font-size: 0.72rem; }
+    }
+
     /* ── Live power-flow visualization ──────────── */
     .flow-wrap {
       display: flex;
@@ -676,7 +704,7 @@
 
     <div class="section-head">
       <h2>Power History</h2>
-      <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+      <div class="chart-controls">
         <div class="chart-modes" id="chartModes">
           <button class="pill-btn chart-mode active" data-mode="power">POWER</button>
           <button class="pill-btn chart-mode" data-mode="energy">ENERGY</button>
