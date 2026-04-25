@@ -19,7 +19,7 @@ Configuration is read from environment variables (set via .env file):
   PVS_PASS       - PVS auth password (last 5 chars of internal serial)
   PORT           - Server port (default: 5001)
   TIMEOUT_SECS   - PVS request timeout (default: 120)
-  REFRESH_SECS   - Background refresh interval (default: 3600)
+  REFRESH_SECS   - Background refresh interval (default: 300)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
@@ -44,8 +44,13 @@ PVS_PASS = os.environ.get("PVS_PASS", "")
 TIMEOUT_SECS = int(os.environ.get("TIMEOUT_SECS", "120"))
 PORT = int(os.environ.get("PORT", "5001"))
 HOST = os.environ.get("HOST", "0.0.0.0")
-REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "3600"))
+REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "300"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "solar_history.db"))
+
+# Savings model: avoided cost = min(solar_kwh, home_kwh) * COST_PER_KWH
+# CO2 model: solar_kwh * CO2_LBS_PER_KWH (full production offsets grid CO2)
+COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
+CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
 
 # Logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -92,6 +97,19 @@ def _init_db():
         temp_c REAL,
         PRIMARY KEY (ts, serial)
     )""")
+    # Idempotent migrations — battery columns added 2026-04-25 (sign convention:
+    # battery_kw > 0 = discharging, < 0 = charging).
+    for col, sql_type in (
+        ("battery_kw", "REAL"),
+        ("battery_soc", "REAL"),
+        ("backup_min", "REAL"),
+        ("battery_lifetime_kwh", "REAL"),
+    ):
+        try:
+            c.execute(f"ALTER TABLE readings ADD COLUMN {col} {sql_type}")
+            logger.info("Migrated readings: added column %s", col)
+        except sqlite3.OperationalError:
+            pass  # column exists
     conn.commit()
     conn.close()
     logger.info("History database initialized at %s", DB_PATH)
@@ -109,6 +127,13 @@ def _record_reading(devices_json_str, livedata=None):
     meter_p = next((d for d in devices if d.get("TYPE") == "PVS5-METER-P"), None)
     meter_c = next((d for d in devices if d.get("TYPE") == "PVS5-METER-C"), None)
     inverters = [d for d in devices if d.get("TYPE") == "SOLARBRIDGE"]
+
+    # Battery (SunVault/Equinox) — pulled from livedata only.
+    # Sign convention: battery_kw > 0 = discharging, < 0 = charging.
+    battery_kw = float(livedata.get("ess_p", 0)) if livedata else 0
+    battery_soc = float(livedata.get("soc", 0)) if livedata else 0
+    backup_min = float(livedata.get("backupTimeRemaining", 0)) if livedata else 0
+    battery_lifetime_kwh = float(livedata.get("ess_en", 0)) if livedata else 0
 
     # Prefer livedata for real-time power, fall back to meter values
     if livedata:
@@ -150,11 +175,13 @@ def _record_reading(devices_json_str, livedata=None):
             c.execute("""INSERT OR REPLACE INTO readings
                 (ts, production_kw, consumption_kw, net_kw, lifetime_kwh,
                  sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
-                 num_panels, panels_working, panels_error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 num_panels, panels_working, panels_error,
+                 battery_kw, battery_soc, backup_min, battery_lifetime_kwh)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, production, consumption, net, lifetime,
                  sys_v, l1_v, l2_v, freq, pf_p, pf_c,
-                 num_panels, panels_working, panels_error))
+                 num_panels, panels_working, panels_error,
+                 battery_kw, battery_soc, backup_min, battery_lifetime_kwh))
             # Per-panel data
             for inv in inverters:
                 serial = inv.get("SERIAL", "unknown")
@@ -424,6 +451,7 @@ def _supplement_devices(devices_json, ip, sess):
 
     # If meters already present in device list, return now
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
+        _inject_battery(data, livedata)
         return json.dumps(data), livedata
 
     # Meters missing — supplement from full varserver data
@@ -479,7 +507,25 @@ def _supplement_devices(devices_json, ip, sess):
                 d["v2n_v"] = str(v2n)
 
     data["devices"] = device_list
+    _inject_battery(data, livedata)
     return json.dumps(data), livedata
+
+
+def _inject_battery(data, livedata):
+    """Surface battery (SunVault) data on the response dict so the dashboard
+    doesn't need a second request. Sign convention: p_kw > 0 = discharging."""
+    if not livedata:
+        return
+    try:
+        data["battery"] = {
+            "p_kw": float(livedata.get("ess_p", 0)),
+            "soc": float(livedata.get("soc", 0)),
+            "backup_min": float(livedata.get("backupTimeRemaining", 0)),
+            "lifetime_kwh": float(livedata.get("ess_en", 0)),
+            "midstate": int(float(livedata.get("midstate", 0))) if livedata.get("midstate") is not None else None,
+        }
+    except (ValueError, TypeError) as e:
+        logger.debug("Battery data parse error: %s", e)
 
 
 # ── PVS authentication ────────────────────────────────────────────────
@@ -649,15 +695,28 @@ def history():
     """Return time-series data for charts.
 
     Query params:
-      range  - Time range: 1h, 6h, 24h, 7d, 30d (default: 24h)
+      range  - Time range: 1m, 1h, 6h, 24h, 7d, 30d, 90d, 1y, all (default: 24h)
       resample - Resample interval in seconds (default: auto based on range)
     """
     range_str = request.args.get("range", "24h")
     resample = request.args.get("resample")
 
-    # Parse range
-    range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
-    range_secs = range_map.get(range_str, 86400)
+    # Parse range. "all" = since first reading.
+    range_map = {
+        "1m": 60, "1h": 3600, "6h": 21600, "24h": 86400,
+        "7d": 604800, "30d": 2592000, "90d": 7776000, "1y": 31536000,
+    }
+    if range_str == "all":
+        # Compute span from earliest reading
+        try:
+            conn0 = sqlite3.connect(DB_PATH)
+            earliest_row = conn0.execute("SELECT MIN(ts) FROM readings").fetchone()
+            conn0.close()
+            range_secs = max(60, int(time.time() - (earliest_row[0] or time.time())))
+        except Exception:
+            range_secs = 86400
+    else:
+        range_secs = range_map.get(range_str, 86400)
 
     # Auto-resample: aim for ~200-400 points max
     if resample:
@@ -695,6 +754,8 @@ def history():
                 AVG(production_kw) as production_kw,
                 AVG(consumption_kw) as consumption_kw,
                 AVG(net_kw) as net_kw,
+                AVG(battery_kw) as battery_kw,
+                AVG(battery_soc) as battery_soc,
                 MAX(lifetime_kwh) as lifetime_kwh,
                 AVG(sys_v) as sys_v,
                 AVG(l1_v) as l1_v,
@@ -712,10 +773,68 @@ def history():
             ORDER BY bucket
         """, (cutoff,)).fetchall()
 
+        # Period totals — compute kWh for the actual data span (not the requested
+        # window, which may extend before our earliest reading).
+        totals_row = c.execute("""
+            SELECT
+                MAX(lifetime_kwh) - MIN(lifetime_kwh) as solar_from_lifetime,
+                AVG(production_kw) as avg_prod,
+                AVG(consumption_kw) as avg_cons,
+                AVG(net_kw) as avg_net,
+                AVG(battery_kw) as avg_battery,
+                MIN(ts) as t_start,
+                MAX(ts) as t_end,
+                COUNT(*) as n
+            FROM readings WHERE ts > ?
+        """, (cutoff,)).fetchone()
+
+        totals = None
+        if totals_row and totals_row["n"] and totals_row["n"] > 1:
+            t_start = totals_row["t_start"] or 0
+            t_end = totals_row["t_end"] or 0
+            elapsed_h = max(1 / 3600, (t_end - t_start) / 3600)
+            # Solar: prefer cumulative lifetime delta (exact); fall back to integration
+            solar_kwh = totals_row["solar_from_lifetime"] or 0
+            if solar_kwh < 0.01:
+                solar_kwh = max(0, (totals_row["avg_prod"] or 0) * elapsed_h)
+            home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
+            # PVS net_p convention: positive = exporting to grid, negative = importing.
+            # Verified via energy balance: pv+battery_discharge-load = net_p.
+            net_kwh = (totals_row["avg_net"] or 0) * elapsed_h
+            battery_net_kwh = (totals_row["avg_battery"] or 0) * elapsed_h  # +discharge, -charge
+
+            grid_import_kwh = max(0, -net_kwh)
+            grid_export_kwh = max(0, net_kwh)
+            avoided_kwh = min(solar_kwh, home_kwh)  # solar that offset grid use
+            savings_dollars = avoided_kwh * COST_PER_KWH
+            co2_lbs = solar_kwh * CO2_LBS_PER_KWH
+            independence_pct = (solar_kwh / home_kwh * 100) if home_kwh > 0.01 else None
+
+            totals = {
+                "solar_kwh": round(solar_kwh, 2),
+                "home_kwh": round(home_kwh, 2),
+                "battery_net_kwh": round(battery_net_kwh, 2),
+                "grid_net_kwh": round(net_kwh, 2),
+                "grid_import_kwh": round(grid_import_kwh, 2),
+                "grid_export_kwh": round(grid_export_kwh, 2),
+                "avoided_kwh": round(avoided_kwh, 2),
+                "savings_dollars": round(savings_dollars, 2),
+                "co2_lbs": round(co2_lbs, 1),
+                "trees_equivalent": round(co2_lbs / 48.0, 1),
+                "miles_not_driven": round(co2_lbs / 0.89, 0),
+                "gallons_not_used": round(co2_lbs / 19.6, 1),
+                "independence_pct": round(independence_pct, 0) if independence_pct is not None else None,
+                "period_start": t_start,
+                "period_end": t_end,
+                "elapsed_hours": round(elapsed_h, 2),
+            }
+
         result = {
             "range": range_str,
+            "range_secs": range_secs,
             "resample_seconds": sample_secs,
-            "readings": [dict(r) for r in rows]
+            "readings": [dict(r) for r in rows],
+            "period_totals": totals,
         }
 
         conn.close()

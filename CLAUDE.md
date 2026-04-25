@@ -1,4 +1,6 @@
-# CLAUDE.md — SunStrong
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -16,7 +18,7 @@ Browser → Tailscale (HTTPS :443) → proxy.py (:5002) → PVS gateway (HTTPS :
                                   SQLite (solar_history.db)
 ```
 
-- **Data collection**: A background thread in proxy.py fetches from PVS every `REFRESH_SECS` (3600s/1hr) and records to SQLite. Runs 24/7 regardless of browser — it's a Python thread in the Flask process, not tied to HTTP connections. The PVS scan cycle is ~40-60 min, so polling faster gives diminishing returns.
+- **Data collection**: A background thread in proxy.py fetches from PVS every `REFRESH_SECS` (300s / 5 min default) and records to SQLite. Runs 24/7 regardless of browser — it's a Python thread in the Flask process, not tied to HTTP connections. The PVS scan cycle is ~40-60 min, so meter values only change that often, but `/sys/livedata/` updates every few seconds so 5 min polling does pick up fresher kW numbers in practice.
 - **PVS is slow**: The `/cgi-bin/dl_cgi/devices/list` endpoint takes 30-45s to respond. Timeout is 120s. First dashboard load waits up to 90s for cached data.
 - **Network mode**: `network_mode: host` on Unraid for direct LAN access to PVS gateway.
 
@@ -29,7 +31,7 @@ Browser → Tailscale (HTTPS :443) → proxy.py (:5002) → PVS gateway (HTTPS :
   - `/sys/devices/meter/` — Full meter data (power, voltage, PF, frequency). **Only updates on PVS scan cycle** (~40-60 min). Stale for hours between scans. Do NOT rely on this for real-time values.
   - `/cgi-bin/dl_cgi/devices/list` — Device list including inverters. Takes 30-45 seconds to respond. Contains panel states but no real-time power data for inverters.
 - **Powerline comms**: SunPower inverters use DC powerline communication. After dark, panels report `STATE=error, OPERATION=noop` because comms need DC voltage. This is normal nighttime behavior — the dashboard detects this pattern (all panels error + near-zero production) and shows "🌙 Nighttime idle" instead of a red error banner.
-- **Refresh interval**: 15 minutes (900s). Don't decrease — the PVS scan cycle is ~40-60 min so faster polling just gets the same data. Each poll makes 3-4 HTTP requests including one that takes 45s.
+- **Refresh interval**: 5 min (300s, see `REFRESH_SECS`). Community standard for PVS monitoring — the SunPower app polls similarly. Each poll makes 3-4 HTTP requests including the slow `/devices/list` (~30-45s), so the PVS spends ~10-15% of its time answering you. Harmless but noticeable. Don't go below 5 min or requests will start overlapping.
 - **Meter supplementation**: PVS6 sometimes omits meter devices from `/devices/list`. The proxy fetches from `/vars?match=/&fmt=obj&cache=mdata` (varserver) and injects synthetic `PVS5-METER-P/C` devices when missing, then overrides power values from livedata.
 - **Session management**: The proxy maintains a requests Session with cookies. On 401/403 or connection errors, it re-authenticates automatically.
 
@@ -55,27 +57,48 @@ cp .env.example .env  # Edit with PVS credentials
 ./sunpower.sh start
 ```
 
-Uses `uv run` locally. Port 5001 by default (not inside Docker).
+`sunpower.sh` is the local management wrapper around `docker compose`: `start`, `stop`, `restart`, `status`, `logs`, `url`, `open`, `build`, `update` (the last fetches upstream `solar_dashboard.html` from the original `thomastech/SunPower-Web-Monitor` repo and rebuilds; it does NOT auto-overwrite our customized `proxy.py` — it diffs and asks). Port 5001 by default locally; 5002 in the Your-server `docker-compose.yml` since 5001 is taken there.
 
 ## API Endpoints
 
 | Endpoint | Description |
 |---|---|
 | `GET /` | Dashboard HTML |
-| `GET /devices` | Current PVS device data (JSON, served from cache) |
-| `GET /history?range=24h` | Aggregated time-series with auto-resampling |
+| `GET /devices` | Current PVS device data (JSON, from cache). Includes a top-level `battery` object: `{ p_kw, soc, backup_min, lifetime_kwh, midstate }` (sign convention: `p_kw > 0` = discharging). |
+| `GET /history?range=24h` | Aggregated time-series with auto-resampling; also returns `period_totals` (see below). |
 | `GET /history/panels?range=24h` | Per-panel raw readings |
-| `GET /health` | Cache status, history entry count |
+| `GET /health` | Cache status, history entry count, `history_earliest` (used by dashboard to gate which range tabs are enabled) |
 
-History ranges: `1h`, `6h`, `24h`, `7d`, `30d`
+History ranges: `1h`, `6h`, `24h`, `7d`, `30d`, `90d`, `1y`, `all` (where `all` is computed dynamically from earliest reading).
 
 Resampling aims for ~300 data points per range.
+
+`period_totals` shape (when there's data in the window):
+
+```jsonc
+{
+  "solar_kwh": 50.4,        // production over period (lifetime_kwh delta when available)
+  "home_kwh": 10.9,
+  "battery_net_kwh": -29.9, // signed: positive = net discharge, negative = net charge
+  "grid_net_kwh": 12.2,     // signed: positive = exported, negative = imported (PVS net_p convention)
+  "grid_import_kwh": 0,     // = max(0, -grid_net_kwh)
+  "grid_export_kwh": 12.2,  // = max(0,  grid_net_kwh)
+  "avoided_kwh": 10.9,      // min(solar_kwh, home_kwh)
+  "savings_dollars": 3.27,  // avoided_kwh × COST_PER_KWH
+  "co2_lbs": 42.8,          // solar_kwh × CO2_LBS_PER_KWH
+  "trees_equivalent": 0.9,  // co2_lbs / 48
+  "miles_not_driven": 48,   // co2_lbs / 0.89
+  "gallons_not_used": 2.2,  // co2_lbs / 19.6
+  "independence_pct": 462,  // solar_kwh / home_kwh × 100
+  "period_start": 1777..., "period_end": 1777..., "elapsed_hours": 24.0
+}
+```
 
 ## Database Schema
 
 Two SQLite tables in `solar_history.db`:
 
-- **`readings`** — One row per refresh: production/consumption kW, voltage, frequency, power factor, panel health counts
+- **`readings`** — One row per refresh: production/consumption kW, **net_kw (PVS net_p convention: + = exporting to grid, - = importing)** verified via energy balance `pv + battery_discharge - load = net_p`, voltage, frequency, power factor, panel health counts, and battery columns: `battery_kw` (`+` = discharging, `-` = charging), `battery_soc` (0–1), `backup_min`, `battery_lifetime_kwh`. Battery columns added 2026-04-25 via idempotent `ALTER TABLE` in `_init_db`.
 - **`panel_readings`** — Per-inverter: serial, model, state, watts, DC/AC voltage, current, temperature
 
 Timestamps are Unix epochs (REAL). Both tables use PRIMARY KEY constraints for dedup.
@@ -104,7 +127,7 @@ Key variables in `.env`:
 | `PVS_PASS` | — | Last 5 chars of internal serial |
 | `DASHBOARD_PORT` | `5002` | 5002 on your-server (5001 elsewhere) |
 | `TIMEOUT_SECS` | `120` | PVS is slow |
-| `REFRESH_SECS` | `3600` | Background refresh interval (1 hour) |
+| `REFRESH_SECS` | `300` | Background refresh interval (5 min) |
 | `DATA_DIR` | `./data` | SQLite persistence volume mount |
 | `TS_HOSTNAME` | `sunstrong` | Tailscale hostname |
 
