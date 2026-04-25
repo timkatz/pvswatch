@@ -879,7 +879,9 @@ def history():
                 AVG(battery_kw) as avg_battery,
                 MIN(ts) as t_start,
                 MAX(ts) as t_end,
-                COUNT(*) as n
+                COUNT(*) as n,
+                COUNT(lifetime_kwh) as n_solar_lt,
+                COUNT(home_lifetime_kwh) as n_home_lt
             FROM readings WHERE ts > ?
         """, (cutoff,)).fetchone()
 
@@ -888,13 +890,16 @@ def history():
             t_start = totals_row["t_start"] or 0
             t_end = totals_row["t_end"] or 0
             elapsed_h = max(1 / 3600, (t_end - t_start) / 3600)
-            # Solar: lifetime delta when available (exact), else integration
-            solar_kwh = totals_row["solar_from_lifetime"] or 0
+            n_rows = totals_row["n"] or 0
+            # Trust a lifetime-counter delta only if it covers most of the
+            # window — otherwise the MAX-MIN spans only the few populated rows
+            # and grossly understates the period total. Fall back to AVG×hours
+            # integration when coverage is sparse.
+            min_coverage = max(2, int(n_rows * 0.8))
+            solar_kwh = (totals_row["solar_from_lifetime"] or 0) if (totals_row["n_solar_lt"] or 0) >= min_coverage else 0
             if solar_kwh < 0.01:
                 solar_kwh = max(0, (totals_row["avg_prod"] or 0) * elapsed_h)
-            # Home: same approach. Older rows have NULL home_lifetime_kwh →
-            # MAX-MIN may be 0 and we fall back to integration.
-            home_kwh = totals_row["home_from_lifetime"] or 0
+            home_kwh = (totals_row["home_from_lifetime"] or 0) if (totals_row["n_home_lt"] or 0) >= min_coverage else 0
             if home_kwh < 0.01:
                 home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
             # PVS net_p convention: positive = importing from grid, negative = exporting.
