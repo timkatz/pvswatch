@@ -742,6 +742,29 @@ def add_cors(resp):
 
 
 # ── Dashboard routes ──────────────────────────────────────────────────
+@app.route("/favicon.svg")
+def favicon_svg():
+    return send_file("docs/favicon.svg", mimetype="image/svg+xml")
+
+
+@app.route("/favicon-32.png")
+def favicon_png_32():
+    return send_file("docs/favicon-32.png", mimetype="image/png")
+
+
+@app.route("/apple-touch-icon.png")
+def apple_touch_icon():
+    return send_file("docs/apple-touch-icon.png", mimetype="image/png")
+
+
+@app.route("/favicon.ico")
+def favicon_ico():
+    # Modern browsers prefer the SVG declared in the HTML <link>, but tabs
+    # opened by URL still request /favicon.ico — serve the 32px PNG which
+    # is acceptable to all major browsers as an "ico" response.
+    return send_file("docs/favicon-32.png", mimetype="image/png")
+
+
 @app.route("/")
 def index():
     if DASHBOARD_HTML is None:

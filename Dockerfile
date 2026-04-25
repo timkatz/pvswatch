@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY proxy.py .
 COPY solar_dashboard.html .
+COPY docs/favicon.svg docs/favicon-32.png docs/apple-touch-icon.png docs/
 
 # Persistent data volume
 VOLUME /data
