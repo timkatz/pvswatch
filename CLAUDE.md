@@ -39,6 +39,18 @@ Browser → Tailscale (HTTPS :443) → proxy.py (:5002) → PVS gateway (HTTPS :
 
 ### Your-server (Unraid)
 
+**Deploy from this Mac after pushing to GitHub:**
+
+```bash
+ssh root@your-server 'cd /mnt/user/appdata/sunstrong/repo && git pull && docker compose up -d --build'
+```
+
+- **MUST use `root@your-server`** — Your-server is Unraid where the only login is root. `ssh your-server` (default user `timkatz`) connects via Tailscale SSH and authenticates, but the remote command silently fails with exit 1 and zero output because that user has no shell. Spent half an hour debugging this once; just always use root.
+- Your-server is reachable as `your-server` via Tailscale MagicDNS (Tailscale IP `100.111.225.123`).
+- Verify after deploy: `ssh root@your-server 'docker logs sunstrong --tail 20'` and check the Tailscale URL responds.
+
+**Manually on Your-server (e.g. via Unraid web terminal):**
+
 ```bash
 cd /mnt/user/appdata/sunstrong/repo
 docker compose up -d --build
@@ -49,6 +61,7 @@ docker compose up -d --build
 - Tailscale state: `/mnt/user/appdata/sunstrong/tailscale-state/`
 - First Tailscale launch requires browser auth — check `docker logs sunstrong-tailscale` for the URL
 - Remote access: `https://sunstrong.your-tailnet.ts.net/`
+- `.env` on Your-server is at `/mnt/user/appdata/sunstrong/repo/.env` (gitignored — must be edited in place if env vars change).
 
 ### Local (macOS)
 
