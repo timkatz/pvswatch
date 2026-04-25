@@ -906,7 +906,11 @@ def history():
                 MAX(ts) as t_end,
                 COUNT(*) as n,
                 COUNT(lifetime_kwh) as n_solar_lt,
-                COUNT(home_lifetime_kwh) as n_home_lt
+                COUNT(home_lifetime_kwh) as n_home_lt,
+                MIN(CASE WHEN lifetime_kwh IS NOT NULL THEN ts END) as solar_lt_t_start,
+                MAX(CASE WHEN lifetime_kwh IS NOT NULL THEN ts END) as solar_lt_t_end,
+                MIN(CASE WHEN home_lifetime_kwh IS NOT NULL THEN ts END) as home_lt_t_start,
+                MAX(CASE WHEN home_lifetime_kwh IS NOT NULL THEN ts END) as home_lt_t_end
             FROM readings WHERE ts > ?
         """, (cutoff,)).fetchone()
 
@@ -916,15 +920,29 @@ def history():
             t_end = totals_row["t_end"] or 0
             elapsed_h = max(1 / 3600, (t_end - t_start) / 3600)
             n_rows = totals_row["n"] or 0
-            # Trust a lifetime-counter delta only if it covers most of the
-            # window — otherwise the MAX-MIN spans only the few populated rows
-            # and grossly understates the period total. Fall back to AVG×hours
-            # integration when coverage is sparse.
-            min_coverage = max(2, int(n_rows * 0.8))
-            solar_kwh = (totals_row["solar_from_lifetime"] or 0) if (totals_row["n_solar_lt"] or 0) >= min_coverage else 0
+            window_span = max(1, t_end - t_start)
+            # Trust a lifetime-counter delta only if its populated rows span
+            # *both* most of the window's row count *and* most of the window's
+            # time. Row-count alone wasn't enough — a column that was added
+            # mid-window can hit the row threshold (most recent rows have it)
+            # while only covering ~half the window's time, producing a delta
+            # that grossly understates the true period total. Falling back to
+            # AVG×hours integration always covers the full elapsed time.
+            def coverage_ok(n_lt, lt_t_start, lt_t_end):
+                if (n_lt or 0) < max(2, int(n_rows * 0.8)):
+                    return False
+                if not (lt_t_start and lt_t_end):
+                    return False
+                return (lt_t_end - lt_t_start) / window_span >= 0.95
+
+            solar_kwh = (totals_row["solar_from_lifetime"] or 0) if coverage_ok(
+                totals_row["n_solar_lt"], totals_row["solar_lt_t_start"], totals_row["solar_lt_t_end"]
+            ) else 0
             if solar_kwh < 0.01:
                 solar_kwh = max(0, (totals_row["avg_prod"] or 0) * elapsed_h)
-            home_kwh = (totals_row["home_from_lifetime"] or 0) if (totals_row["n_home_lt"] or 0) >= min_coverage else 0
+            home_kwh = (totals_row["home_from_lifetime"] or 0) if coverage_ok(
+                totals_row["n_home_lt"], totals_row["home_lt_t_start"], totals_row["home_lt_t_end"]
+            ) else 0
             if home_kwh < 0.01:
                 home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
             # PVS net_p convention: positive = importing from grid, negative = exporting.
