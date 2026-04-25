@@ -65,6 +65,8 @@ services:
           echo "tailscale up failed (attempt $$i/12), retrying in 5s..."
           sleep 5
         done
+        # Reset any stale binding (e.g. from a TS_HOSTNAME change) before re-binding
+        tailscale serve reset >/dev/null 2>&1 || true
         tailscale serve --bg --https=443 http://127.0.0.1:${DASHBOARD_PORT:-5001}
         tail -f /dev/null
       '
