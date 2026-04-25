@@ -96,25 +96,7 @@ cp .env.example .env
 
 ### 2. Start the container
 
-**Option A — use the prebuilt multi-arch image (recommended):**
-
-A `docker-compose.yml` snippet that pulls from GHCR (no local build needed):
-
-```yaml
-services:
-  monitor:
-    image: ghcr.io/timkatz/pvswatch:latest
-    container_name: pvswatch
-    restart: unless-stopped
-    network_mode: host
-    env_file: .env
-    volumes:
-      - ./data:/data
-```
-
-Then `docker compose up -d`.
-
-**Option B — build from source with the convenience wrapper:**
+**Option A — convenience wrapper (recommended):**
 
 ```bash
 ./pvswatch.sh start    # builds and starts
@@ -122,11 +104,13 @@ Then `docker compose up -d`.
 ./pvswatch.sh open     # open the dashboard in your browser
 ```
 
-**Option C — build from source with Docker Compose directly:**
+**Option B — Docker Compose directly:**
 
 ```bash
 docker compose up -d --build
 ```
+
+> **Prebuilt container image — coming soon.** A multi-arch image is published to GitHub Container Registry on every release tag (`ghcr.io/timkatz/pvswatch:latest`), but the package is currently private. Once it's published publicly, you'll be able to skip the local build entirely and just `docker compose pull && docker compose up -d` against an `image:` reference.
 
 The dashboard is now at `http://localhost:5001/` (or whatever `DASHBOARD_PORT` you set).
 
