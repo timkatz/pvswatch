@@ -435,6 +435,81 @@
     /* tab-disabled = not enough history yet */
     .chart-tab[disabled] { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
 
+    /* ── Live power-flow visualization ──────────── */
+    .flow-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 0.5rem 0;
+    }
+    .flow-sources {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+    .flow-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 1rem 0.75rem;
+      text-align: center;
+      transition: opacity 0.3s, border-color 0.3s;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      align-items: center;
+      min-width: 0;
+    }
+    .flow-card.idle { opacity: 0.35; }
+    .flow-card.solar.active { border-color: var(--accent); }
+    .flow-card.battery.discharging { border-color: var(--accent); }
+    .flow-card.battery.charging   { border-color: var(--green); }
+    .flow-card.grid.importing { border-color: var(--red); }
+    .flow-card.grid.exporting { border-color: var(--blue); }
+    .flow-icon { font-size: 1.6rem; line-height: 1; }
+    .flow-label {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      font-weight: 700;
+    }
+    .flow-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+    .flow-value .unit { font-size: 0.7rem; font-weight: 500; color: var(--text-dim); margin-left: 2px; }
+    .flow-arrow {
+      font-size: 1.2rem;
+      color: var(--text-dim);
+      line-height: 1;
+      margin-top: 0.1rem;
+    }
+    .flow-arrow.solar       { color: var(--accent); }
+    .flow-arrow.battery-out { color: var(--accent); }
+    .flow-arrow.battery-in  { color: var(--green); }
+    .flow-arrow.grid-in     { color: var(--red); }
+    .flow-arrow.grid-out    { color: var(--blue); }
+    .flow-state { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .flow-home {
+      background: linear-gradient(135deg, rgba(245,158,11,0.08) 0%, var(--bg) 100%);
+      border: 1px solid rgba(245,158,11,0.35);
+      border-radius: var(--radius);
+      padding: 1.1rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      align-items: center;
+    }
+    .flow-home .flow-icon { font-size: 2rem; }
+    .flow-home .flow-value { font-size: 1.8rem; color: var(--accent); }
+    @media (max-width: 640px) {
+      .flow-sources { grid-template-columns: 1fr; }
+    }
+
     /* ── Responsive ──────────────────────────────── */
     @media (max-width: 800px) {
       .hero { grid-template-columns: repeat(3, 1fr); }
@@ -589,6 +664,37 @@
         <canvas id="powerChart"></canvas>
       </div>
       <div class="chart-empty" id="chartEmpty" style="display:none">Collecting data… chart will appear once enough readings are stored.</div>
+      <div class="flow-wrap" id="powerFlow" style="display:none">
+        <div class="flow-sources">
+          <div class="flow-card solar" id="flow_solar">
+            <div class="flow-icon">☀️</div>
+            <div class="flow-label">Solar</div>
+            <div class="flow-value" id="flow_solar_v">— <span class="unit">W</span></div>
+            <div class="flow-arrow solar" id="flow_solar_arr">↓</div>
+            <div class="flow-state" id="flow_solar_s">producing</div>
+          </div>
+          <div class="flow-card battery" id="flow_battery">
+            <div class="flow-icon">🔋</div>
+            <div class="flow-label">Battery</div>
+            <div class="flow-value" id="flow_battery_v">— <span class="unit">kW</span></div>
+            <div class="flow-arrow" id="flow_battery_arr">·</div>
+            <div class="flow-state" id="flow_battery_s">idle</div>
+          </div>
+          <div class="flow-card grid" id="flow_grid">
+            <div class="flow-icon">⚡</div>
+            <div class="flow-label">Grid</div>
+            <div class="flow-value" id="flow_grid_v">— <span class="unit">W</span></div>
+            <div class="flow-arrow" id="flow_grid_arr">·</div>
+            <div class="flow-state" id="flow_grid_s">balanced</div>
+          </div>
+        </div>
+        <div class="flow-home">
+          <div class="flow-icon">🏠</div>
+          <div class="flow-label">Home</div>
+          <div class="flow-value" id="flow_home_v">— <span class="unit">kW</span></div>
+          <div class="flow-state">consuming · auto-refreshing every 20s</div>
+        </div>
+      </div>
     </div>
 
     <div class="section-head"><h2>SunVault Battery</h2></div>
@@ -859,7 +965,7 @@ async function fetchData() {
     }
 
     // Hero cards (Solar/Home/Battery/Grid) in live mode; otherwise owned by applyTotals
-    if (currentRange === 'live') applyLive();
+    if (currentRange === 'live') { applyLive(); renderFlow(); }
 
     // Battery section always reflects latest live data
     renderBattery();
@@ -1205,29 +1311,98 @@ document.getElementById('chartTabs').addEventListener('click', (e) => {
   }
 });
 
-// In LIVE mode, period-dependent things (chart, savings, independence)
-// don't make sense — hide them with a placeholder.
+// In LIVE mode, swap the chart for a power-flow visualization and hide
+// period-dependent things (savings, independence) that need a window.
 function applyLiveModeUi(isLive) {
   const canvas = document.getElementById('powerChart');
   const emptyEl = document.getElementById('chartEmpty');
+  const flowEl  = document.getElementById('powerFlow');
   const indBadge = document.getElementById('independenceBadge');
   const savings = document.getElementById('savingsSection');
   const savingsScope = document.getElementById('savingsScope');
   if (isLive) {
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     canvas.style.display = 'none';
-    emptyEl.style.display = 'block';
-    emptyEl.textContent = 'Live mode — pick a range (1H, 24H, 7D…) to see chart history.';
+    emptyEl.style.display = 'none';
+    flowEl.style.display = 'flex';
     indBadge.style.display = 'none';
-    if (savings) savings.style.opacity = '0.4';
-    if (savingsScope) savingsScope.textContent = '— select a range —';
+    if (savings) savings.style.opacity = '0.35';
+    if (savingsScope) savingsScope.textContent = '— pick a range to see savings —';
     ['sv_dollars','sv_co2','sv_trees','sv_miles','sv_gallons'].forEach(id => {
       const el = document.getElementById(id); if (el) el.textContent = '—';
     });
+    renderFlow();
   } else {
+    flowEl.style.display = 'none';
     emptyEl.textContent = 'Collecting data… chart will appear once enough readings are stored.';
     if (savings) savings.style.opacity = '1';
   }
+}
+
+// Power-flow visualization (LIVE mode). Shows where energy is currently
+// flowing: solar/battery/grid → home.
+function renderFlow() {
+  if (!liveSnapshot) return;
+  const s = liveSnapshot;
+  const fmt = (kw) => {
+    const f = fmtPower(kw);
+    return `${f.value} <span class="unit">${f.unit}</span>`;
+  };
+
+  // Solar
+  const prodKw = s.prodKw || 0;
+  const solarCard = document.getElementById('flow_solar');
+  document.getElementById('flow_solar_v').innerHTML = fmt(prodKw);
+  if (prodKw > 0.01) {
+    solarCard.className = 'flow-card solar active';
+    document.getElementById('flow_solar_s').textContent = 'producing';
+  } else {
+    solarCard.className = 'flow-card solar idle';
+    document.getElementById('flow_solar_s').textContent = 'idle';
+  }
+
+  // Battery
+  const batKw = s.batteryKw || 0;
+  const batCard = document.getElementById('flow_battery');
+  const batArr  = document.getElementById('flow_battery_arr');
+  const batS    = document.getElementById('flow_battery_s');
+  document.getElementById('flow_battery_v').innerHTML = fmt(batKw);
+  if (batKw < -0.01) {
+    batCard.className = 'flow-card battery charging';
+    batArr.textContent = '↑'; batArr.className = 'flow-arrow battery-in';
+    batS.textContent = 'charging' + (s.batterySoc != null ? ' · ' + Math.round(s.batterySoc * 100) + '%' : '');
+  } else if (batKw > 0.01) {
+    batCard.className = 'flow-card battery discharging';
+    batArr.textContent = '↓'; batArr.className = 'flow-arrow battery-out';
+    batS.textContent = 'powering home' + (s.batterySoc != null ? ' · ' + Math.round(s.batterySoc * 100) + '%' : '');
+  } else {
+    batCard.className = 'flow-card battery idle';
+    batArr.textContent = '·'; batArr.className = 'flow-arrow';
+    batS.textContent = 'idle' + (s.batterySoc != null ? ' · ' + Math.round(s.batterySoc * 100) + '%' : '');
+  }
+
+  // Grid (compute via energy balance: import = home - solar - battery_discharge)
+  const gridImpKw = (s.consKw || 0) - (s.prodKw || 0) - (s.batteryKw || 0);
+  const gridCard = document.getElementById('flow_grid');
+  const gridArr  = document.getElementById('flow_grid_arr');
+  const gridS    = document.getElementById('flow_grid_s');
+  document.getElementById('flow_grid_v').innerHTML = fmt(gridImpKw);
+  if (gridImpKw > 0.01) {
+    gridCard.className = 'flow-card grid importing';
+    gridArr.textContent = '↓'; gridArr.className = 'flow-arrow grid-in';
+    gridS.textContent = 'importing';
+  } else if (gridImpKw < -0.01) {
+    gridCard.className = 'flow-card grid exporting';
+    gridArr.textContent = '↑'; gridArr.className = 'flow-arrow grid-out';
+    gridS.textContent = 'exporting';
+  } else {
+    gridCard.className = 'flow-card grid idle';
+    gridArr.textContent = '·'; gridArr.className = 'flow-arrow';
+    gridS.textContent = 'balanced';
+  }
+
+  // Home (consumption)
+  document.getElementById('flow_home_v').innerHTML = fmt(s.consKw || 0);
 }
 
 document.getElementById('chartModes').addEventListener('click', (e) => {
