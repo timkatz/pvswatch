@@ -853,10 +853,10 @@ def _refresh_mock():
 
 
 def _seed_mock_history():
-    """Seed ~5 days of synthetic readings on first start in mock mode.
-    Idempotent — skipped if any rows already exist. 5 days is intentional:
-    it puts 7D and 30D inside the dashboard's gating threshold (≥ 10% of
-    the window) while keeping 90D and 1Y disabled."""
+    """Seed history on first start in mock mode. Prefers a real-data fixture
+    (fixtures/history_seed.sqlite, anonymized + trimmed by
+    scripts/build_history_fixture.py) if present, otherwise falls back to a
+    synthetic time-of-day curve. Idempotent: skipped if any rows exist."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     if c.execute("SELECT COUNT(*) FROM readings").fetchone()[0] > 0:
@@ -864,6 +864,13 @@ def _seed_mock_history():
         logger.info("Mock seed skipped — readings table already has data")
         return
 
+    fixture_path = os.path.join(FIXTURES_DIR, "history_seed.sqlite")
+    if os.path.exists(fixture_path):
+        conn.close()
+        _seed_from_fixture(fixture_path)
+        return
+
+    logger.info("No history_seed.sqlite found at %s — using synthetic curves", fixture_path)
     import math
     DAYS = 5
     INTERVAL = 300
@@ -937,6 +944,63 @@ def _seed_mock_history():
     conn.close()
     logger.info("Seeded mock history: %d readings, %d panel rows over %d days",
                 total_rows, len(panel_rows), DAYS)
+
+
+def _seed_from_fixture(fixture_path):
+    """Copy readings + panel_readings from the fixture into the runtime DB,
+    adding time.time() to each ts. The fixture stores normalized timestamps
+    where the most-recent row has ts = 0 and older rows are negative
+    (see scripts/build_history_fixture.py), so the offset to apply is
+    simply the current epoch — the newest row lands at "now"."""
+    src = sqlite3.connect(f"file:{fixture_path}?mode=ro", uri=True)
+    max_orig = src.execute("SELECT MAX(ts) FROM readings").fetchone()[0]
+    src.close()
+    if max_orig is None:
+        logger.warning("Fixture %s has no readings; skipping seed", fixture_path)
+        return
+    offset = time.time()  # newest row (ts=0) → now; older rows (ts<0) → past
+
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        # ATTACH path is sqlite-quoted (single quotes, doubled to escape).
+        conn.execute(f"ATTACH DATABASE '{fixture_path.replace(chr(39), chr(39)*2)}' AS src")
+        cur = conn.execute(
+            "INSERT INTO readings ("
+            "ts, production_kw, consumption_kw, net_kw, lifetime_kwh, "
+            "sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption, "
+            "num_panels, panels_working, panels_error, "
+            "battery_kw, battery_soc, backup_min, "
+            "battery_lifetime_kwh, home_lifetime_kwh, grid_lifetime_kwh) "
+            "SELECT "
+            "ts + ?, production_kw, consumption_kw, net_kw, lifetime_kwh, "
+            "sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption, "
+            "num_panels, panels_working, panels_error, "
+            "battery_kw, battery_soc, backup_min, "
+            "battery_lifetime_kwh, home_lifetime_kwh, grid_lifetime_kwh "
+            "FROM src.readings",
+            (offset,),
+        )
+        n_readings = cur.rowcount
+        cur.close()
+        cur = conn.execute(
+            "INSERT INTO panel_readings ("
+            "ts, serial, panel_model, state, watts, "
+            "v_dc, i_dc, v_ac, temp_c, lifetime_kwh) "
+            "SELECT "
+            "ts + ?, serial, panel_model, state, watts, "
+            "v_dc, i_dc, v_ac, temp_c, lifetime_kwh "
+            "FROM src.panel_readings",
+            (offset,),
+        )
+        n_panel = cur.rowcount
+        cur.close()
+        conn.commit()
+        # No DETACH — closing the connection releases the attached DB.
+        # Calling DETACH while the INSERT cursors are still in flight
+        # raises "database src is locked".
+        conn.close()
+    logger.info("Seeded mock history from fixture: %d readings, %d panel rows (ts offset %+ds)",
+                n_readings, n_panel, int(offset))
 
 
 def _background_refresh_mock():
