@@ -1,0 +1,40 @@
+name: pvswatch-dev
+
+# Local development / test compose file. No real PVS gateway needed —
+# proxy.py loads fixtures from ./fixtures and seeds 5 days of synthetic
+# history on first start. Used by `./pvswatch.sh test`.
+
+services:
+  monitor:
+    build: .
+    image: pvswatch:dev
+    container_name: pvswatch-dev
+    restart: "no"
+    ports:
+      # Host 5099 → container 5001. Avoids clashing with prod containers
+      # already using 5001 on this machine.
+      - "5099:5001"
+    environment:
+      - MOCK_PVS=1
+      - PORT=5001
+      # Fast refresh so the LIVE flow updates visibly during a test run.
+      - REFRESH_SECS=15
+      - LOG_LEVEL=INFO
+      - DB_PATH=/data/solar_history.db
+    volumes:
+      # Mount fixtures live so tests can edit them without a rebuild.
+      - ./fixtures:/app/fixtures:ro
+    # Ephemeral SQLite per run — every container start re-seeds the same
+    # deterministic 5 days. This is what makes the rig repeatable.
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+# Dashboard URL on the host: http://localhost:5099/
+# Playwright (playwright.config.js) defaults to PVSWATCH_URL or
+# http://localhost:5099, matching the port mapping above.

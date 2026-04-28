@@ -46,6 +46,11 @@ PORT = int(os.environ.get("PORT", "5001"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 REFRESH_SECS = int(os.environ.get("REFRESH_SECS", "300"))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "solar_history.db"))
+# MOCK_PVS=1 swaps the live-gateway path for fixture-based responses + a
+# pre-seeded synthetic history. Used by the local test rig (no LAN access
+# to a real PVS needed). See fixtures/ and pvswatch.sh test.
+MOCK_PVS = os.environ.get("MOCK_PVS", "0") == "1"
+FIXTURES_DIR = os.environ.get("FIXTURES_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
 
 # Savings model: avoided cost = min(solar_kwh, home_kwh) * COST_PER_KWH
 # CO2 model: solar_kwh * CO2_LBS_PER_KWH (full production offsets grid CO2)
@@ -762,6 +767,187 @@ def _background_refresh():
         _refresh_data()
 
 
+# ── Mock mode (MOCK_PVS=1) ────────────────────────────────────────────
+# Synthesizes /devices and history from fixtures so the dashboard runs
+# without a real PVS gateway. Used by the local test rig.
+
+MOCK_DEVICES_TEMPLATE = None
+MOCK_LIVEDATA_TEMPLATE = None
+
+
+def _load_mock_fixtures():
+    """Load JSON fixtures into module globals on startup."""
+    global MOCK_DEVICES_TEMPLATE, MOCK_LIVEDATA_TEMPLATE
+    with open(os.path.join(FIXTURES_DIR, "devices_list.json")) as f:
+        MOCK_DEVICES_TEMPLATE = json.load(f)
+    with open(os.path.join(FIXTURES_DIR, "livedata.json")) as f:
+        MOCK_LIVEDATA_TEMPLATE = json.load(f)
+    logger.info("Loaded mock fixtures from %s", FIXTURES_DIR)
+
+
+def _mock_curve(ts):
+    """Return (production_kw, consumption_kw, battery_kw) for a given epoch.
+    Deterministic: solar bell during daylight, evening consumption bump,
+    battery charges around peak production and discharges in the evening.
+    Battery sign: + = discharging, - = charging (matches PVS ess_p)."""
+    import math
+    hod = (ts % 86400) / 3600.0
+    if 6 <= hod <= 18:
+        x = (hod - 12) / 6.0
+        production = max(0.0, 5.0 * (1 - x * x))
+    else:
+        production = 0.0
+    consumption = 1.0
+    if 18 <= hod <= 23:
+        consumption += 2.0
+    if 6 <= hod <= 8:
+        consumption += 0.5
+    if production > 3.0:
+        battery_kw = -1.5  # charging
+    elif consumption > 2.5 and production < 0.5:
+        battery_kw = 1.5   # discharging
+    else:
+        battery_kw = 0.0
+    return production, consumption, battery_kw
+
+
+def _refresh_mock():
+    """Populate cache + record a history row from fixtures, modulating power
+    values from a deterministic time-of-day curve so LIVE flow looks alive."""
+    devices_data = json.loads(json.dumps(MOCK_DEVICES_TEMPLATE))  # deep copy
+    livedata = dict(MOCK_LIVEDATA_TEMPLATE)
+
+    now = time.time()
+    pv, cons, bat = _mock_curve(now)
+    net = cons - pv - bat  # net_p convention: + = importing
+
+    livedata["pv_p"] = round(pv, 3)
+    livedata["site_load_p"] = round(cons, 3)
+    livedata["net_p"] = round(net, 3)
+    livedata["ess_p"] = round(bat, 3)
+    livedata["time"] = str(int(now))
+
+    # Mirror power into the devices list so the dashboard's panel/meter
+    # views see consistent values.
+    inverters = [d for d in devices_data["devices"] if d.get("TYPE") == "SOLARBRIDGE"]
+    per_panel = pv / max(1, len(inverters))
+    for d in devices_data["devices"]:
+        t = d.get("TYPE")
+        if t == "PVS5-METER-P":
+            d["p_3phsum_kw"] = f"{pv:.3f}"
+        elif t == "PVS5-METER-C":
+            d["p_3phsum_kw"] = f"{cons:.3f}"
+        elif t == "SOLARBRIDGE":
+            d["p_3phsum_kw"] = f"{per_panel:.3f}"
+            if per_panel > 0.005:
+                d["STATE"] = "working"
+                d["STATEDESCR"] = "Working"
+            else:
+                d["STATE"] = "error"
+                d["STATEDESCR"] = "Communicating"
+
+    _inject_battery(devices_data, livedata)
+    cache.set(json.dumps(devices_data))
+    cache.set_error(None)
+    _record_reading(json.dumps(devices_data), livedata=livedata)
+
+
+def _seed_mock_history():
+    """Seed ~5 days of synthetic readings on first start in mock mode.
+    Idempotent — skipped if any rows already exist. 5 days is intentional:
+    it puts 7D and 30D inside the dashboard's gating threshold (≥ 10% of
+    the window) while keeping 90D and 1Y disabled."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    if c.execute("SELECT COUNT(*) FROM readings").fetchone()[0] > 0:
+        conn.close()
+        logger.info("Mock seed skipped — readings table already has data")
+        return
+
+    import math
+    DAYS = 5
+    INTERVAL = 300
+    rows_per_day = 86400 // INTERVAL
+    total_rows = DAYS * rows_per_day
+    now = time.time()
+    start_ts = now - DAYS * 86400
+
+    lt_solar = 12000.0
+    lt_home = 8000.0
+    lt_grid_net = -3500.0
+    lt_battery = 1200.0
+
+    rows = []
+    for i in range(total_rows):
+        ts = start_ts + i * INTERVAL
+        pv, cons, bat = _mock_curve(ts)
+        net_kw = cons - pv - bat
+        delta_h = INTERVAL / 3600.0
+        lt_solar += pv * delta_h
+        lt_home += cons * delta_h
+        lt_grid_net += net_kw * delta_h
+        lt_battery += abs(bat) * delta_h * 0.5
+        hod = (ts % 86400) / 3600.0
+        soc = 0.7 + 0.25 * math.sin(2 * math.pi * hod / 24.0 - 1.0)
+        soc = max(0.4, min(0.95, soc))
+        panels_working = 16 if pv > 0.05 else 0
+        panels_error = 0 if pv > 0.05 else 16
+        rows.append((
+            ts, pv, cons, net_kw, lt_solar,
+            240.1, 120.05, 120.05, 60.0, 1.0, 0.99,
+            16, panels_working, panels_error,
+            bat, soc, 720,
+            lt_battery, lt_home, lt_grid_net,
+        ))
+
+    panel_serials = [f"E00121935016M{i:03d}" for i in range(1, 17)]
+    panel_rows = []
+    # One panel snapshot per hour (not every 5 min) — keeps the seeded DB
+    # small while still giving the panel-drilldown view enough buckets.
+    for i in range(0, total_rows, 12):
+        ts = start_ts + i * INTERVAL
+        pv, _, _ = _mock_curve(ts)
+        per_panel_w = (pv * 1000) / 16
+        for serial in panel_serials:
+            jitter = ((hash(serial) % 100) - 50) / 1000.0
+            w = max(0.0, per_panel_w * (1 + jitter))
+            state = "working" if w > 5 else "error"
+            lifetime = 700 + (ts - start_ts) / 86400.0 * 8 + (hash(serial) % 50)
+            panel_rows.append((
+                ts, serial, "SPR-X22-360-D-AC", state, w,
+                44.0 + (hash(serial) % 30) / 100.0,
+                w / 240.0,
+                240.05,
+                38.0 + (hash(serial + "t") % 50) / 10.0,
+                lifetime,
+            ))
+
+    with _db_lock:
+        c.executemany("""INSERT OR REPLACE INTO readings
+            (ts, production_kw, consumption_kw, net_kw, lifetime_kwh,
+             sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
+             num_panels, panels_working, panels_error,
+             battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
+             home_lifetime_kwh, grid_lifetime_kwh)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", rows)
+        c.executemany("""INSERT OR REPLACE INTO panel_readings
+            (ts, serial, panel_model, state, watts, v_dc, i_dc, v_ac, temp_c, lifetime_kwh)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", panel_rows)
+        conn.commit()
+    conn.close()
+    logger.info("Seeded mock history: %d readings, %d panel rows over %d days",
+                total_rows, len(panel_rows), DAYS)
+
+
+def _background_refresh_mock():
+    """Mock equivalent of _background_refresh."""
+    logger.info("Starting mock refresh loop (every %ds)", REFRESH_SECS)
+    _refresh_mock()
+    while True:
+        time.sleep(REFRESH_SECS)
+        _refresh_mock()
+
+
 # ── CORS ──────────────────────────────────────────────────────────────
 @app.after_request
 def add_cors(resp):
@@ -1187,8 +1373,13 @@ if __name__ == "__main__":
     _init_db()
     _load_dashboard()
 
-    # Start background data refresh
-    if PVS_IP and PVS_PASS:
+    if MOCK_PVS:
+        logger.info("MOCK_PVS=1 — fixture mode, no PVS gateway calls will be made")
+        _load_mock_fixtures()
+        _seed_mock_history()
+        t = threading.Thread(target=_background_refresh_mock, daemon=True)
+        t.start()
+    elif PVS_IP and PVS_PASS:
         t = threading.Thread(target=_background_refresh, daemon=True)
         t.start()
     else:

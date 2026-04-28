@@ -23,6 +23,8 @@ the local API. Including it up front saves a back-and-forth.
 3. Verify locally:
    - `python -m py_compile proxy.py` — basic syntax check
    - `docker compose build` — make sure the container still builds
+   - `./pvswatch.sh test` — Playwright e2e suite against a mock-mode
+     container (no real PVS gateway needed). Requires Docker + Node.js.
 4. Open a PR against `main`. Describe **what** changed and **why**, and
    reference the issue you're solving.
 

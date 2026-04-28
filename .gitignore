@@ -32,3 +32,10 @@ CLAUDE.md
 
 # Runtime data
 solar_history.db
+
+# Test rig (Playwright)
+node_modules/
+playwright-report/
+test-results/
+.playwright/
+screenshots/

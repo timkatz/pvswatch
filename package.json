@@ -1,0 +1,14 @@
+{
+  "name": "pvswatch-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright e2e tests for the pvswatch dashboard. See pvswatch.sh test.",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

@@ -47,6 +47,8 @@ Commands:
   url       Print the dashboard URL
   open      Open the dashboard in your browser
   update    git pull origin and rebuild the container
+  test      Run the local Playwright e2e suite (mock mode, no PVS needed)
+  dev       Bring up the mock-mode dev container on http://localhost:5001
   help      Show this help message
 
 All config is read from .env. Key variables:
@@ -151,6 +153,87 @@ update_project() {
     echo "✅ Update complete."
 }
 
+# ── Dev / test rig (mock mode) ────────────────────────────────────────
+# `dev` brings up docker-compose.dev.yml so the dashboard runs without a
+# real PVS. `test` does the same and runs the Playwright suite, then
+# tears down. See docker-compose.dev.yml + tests/ for details.
+DEV_COMPOSE="-f docker-compose.dev.yml"
+
+require_docker() {
+    if ! docker version &>/dev/null; then
+        echo "❌ Docker daemon not running."
+        echo "   Start it with: colima start  (or open Docker Desktop)"
+        exit 1
+    fi
+}
+
+wait_for_health() {
+    local url="${1:-http://localhost:5099/health}"
+    local deadline=$((SECONDS + 60))
+    while (( SECONDS < deadline )); do
+        if curl -sf "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+dev_up() {
+    require_docker
+    echo "🧪 Starting dev container (mock mode) on http://localhost:5099/ ..."
+    $DC $DEV_COMPOSE up -d --build
+    if ! wait_for_health; then
+        echo "❌ Dashboard didn't respond on /health within 60s."
+        $DC $DEV_COMPOSE logs --tail 50
+        return 1
+    fi
+    echo "✅ Dev dashboard ready: http://localhost:5099/"
+    echo "   Stop it with: $DC $DEV_COMPOSE down"
+}
+
+run_tests() {
+    require_docker
+    if ! command -v npx &>/dev/null; then
+        echo "❌ Node.js / npx not found. Install with: brew install node"
+        exit 1
+    fi
+
+    if [[ ! -d "$SCRIPT_DIR/node_modules/@playwright" ]]; then
+        echo "📦 Installing Playwright (one-time)..."
+        ( cd "$SCRIPT_DIR" && npm install )
+        echo "📥 Downloading Chromium for Playwright (one-time)..."
+        ( cd "$SCRIPT_DIR" && npx playwright install chromium )
+    fi
+
+    echo "🚀 Bringing up dev container..."
+    $DC $DEV_COMPOSE up -d --build
+    trap '$DC $DEV_COMPOSE down >/dev/null 2>&1 || true' EXIT
+
+    if ! wait_for_health; then
+        echo "❌ Dashboard didn't respond on /health within 60s."
+        $DC $DEV_COMPOSE logs --tail 80
+        exit 1
+    fi
+
+    echo "🎭 Running Playwright tests..."
+    set +e
+    ( cd "$SCRIPT_DIR" && npx playwright test "$@" )
+    local rc=$?
+    set -e
+
+    echo "🧹 Tearing down dev container..."
+    $DC $DEV_COMPOSE down >/dev/null 2>&1 || true
+    trap - EXIT
+
+    if (( rc == 0 )); then
+        echo "✅ All tests passed."
+    else
+        echo "❌ Tests failed (exit $rc). HTML report: playwright-report/index.html"
+    fi
+    return $rc
+}
+
 # ── Main ──────────────────────────────────────────────────────────────
 case "${1:-help}" in
     build)   build_image ;;
@@ -162,6 +245,8 @@ case "${1:-help}" in
     url)     show_url ;;
     open)    open_dashboard ;;
     update)  update_project ;;
+    dev)     dev_up ;;
+    test)    shift; run_tests "$@" ;;
     help|-h|--help) usage ;;
     *)       echo "Unknown command: $1"; echo; usage; exit 1 ;;
 esac
