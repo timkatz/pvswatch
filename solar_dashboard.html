@@ -1444,11 +1444,13 @@ function applyLiveModeUi(isLive) {
   const savings = document.getElementById('savingsSection');
   const savingsScope = document.getElementById('savingsScope');
   const chartContainer = document.querySelector('.chart-container');
+  const chartModes = document.getElementById('chartModes');
   if (isLive) {
     if (powerChart) { powerChart.destroy(); powerChart = null; }
     canvas.style.display = 'none';
     emptyEl.style.display = 'none';
     if (chartContainer) chartContainer.style.display = 'none';
+    if (chartModes) chartModes.style.display = 'none';
     flowEl.style.display = 'flex';
     indBadge.style.display = 'none';
     if (savings) savings.style.opacity = '0.35';
@@ -1460,6 +1462,7 @@ function applyLiveModeUi(isLive) {
   } else {
     flowEl.style.display = 'none';
     if (chartContainer) chartContainer.style.display = '';
+    if (chartModes) chartModes.style.display = '';
     emptyEl.textContent = 'Collecting data… chart will appear once enough readings are stored.';
     if (savings) savings.style.opacity = '1';
   }
@@ -1578,7 +1581,12 @@ async function refreshAvailableRanges() {
         t.disabled = win ? earliest > win.start : false;
         return;
       }
-      t.disabled = (RANGE_SECS[r] || 0) > availableSecs;
+      // Enable a range tab as soon as we have at least 10% of its window in
+      // history. Below that, the chart would show only a tiny sliver and the
+      // label would be misleading; above it, partial coverage is still useful
+      // (e.g. 4 days of data on the 30D tab is informative).
+      const reqSecs = RANGE_SECS[r] || 0;
+      t.disabled = reqSecs > availableSecs * 10;
     });
   } catch (e) { /* ignore */ }
 }
