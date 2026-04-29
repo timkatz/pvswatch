@@ -39,3 +39,8 @@ playwright-report/
 test-results/
 .playwright/
 screenshots/
+
+# Auto-refreshed live fixture (built by pvswatch.sh dev/test from asgard).
+# The baseline fixtures/history_seed.sqlite is committed; this is the
+# always-fresh override.
+fixtures/history_seed.live.sqlite

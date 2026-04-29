@@ -864,13 +864,17 @@ def _seed_mock_history():
         logger.info("Mock seed skipped — readings table already has data")
         return
 
-    fixture_path = os.path.join(FIXTURES_DIR, "history_seed.sqlite")
-    if os.path.exists(fixture_path):
-        conn.close()
-        _seed_from_fixture(fixture_path)
-        return
+    # Two-tier fixture: prefer .live (auto-refreshed from asgard before each
+    # test run) over the committed baseline. Both are gated by FIXTURES_DIR.
+    for name in ("history_seed.live.sqlite", "history_seed.sqlite"):
+        candidate = os.path.join(FIXTURES_DIR, name)
+        if os.path.exists(candidate):
+            logger.info("Seeding from fixture %s", candidate)
+            conn.close()
+            _seed_from_fixture(candidate)
+            return
 
-    logger.info("No history_seed.sqlite found at %s — using synthetic curves", fixture_path)
+    logger.info("No history_seed fixture found in %s — using synthetic curves", FIXTURES_DIR)
     import math
     DAYS = 5
     INTERVAL = 300

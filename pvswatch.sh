@@ -179,8 +179,42 @@ wait_for_health() {
     return 1
 }
 
+# Pull the latest solar_history.db from asgard, run it through
+# scripts/build_history_fixture.py, and write the result to
+# fixtures/history_seed.live.sqlite (gitignored). proxy.py prefers
+# .live over the committed baseline, so each dev/test run sees fresh
+# data. Set PVSWATCH_NO_REFRESH=1 to skip (e.g. offline / on a plane).
+# Failures are non-fatal — falls back to whatever fixture is on disk.
+refresh_fixture_from_asgard() {
+    if [[ "${PVSWATCH_NO_REFRESH:-0}" == "1" ]]; then
+        echo "📡 Fixture refresh skipped (PVSWATCH_NO_REFRESH=1)"
+        return 0
+    fi
+    local src_remote="/mnt/user/appdata/pvswatch/data/solar_history.db"
+    local local_tmp="/tmp/pvswatch_src_$$.db"
+    local out="$SCRIPT_DIR/fixtures/history_seed.live.sqlite"
+
+    echo "📡 Refreshing fixture from asgard..."
+    if ! scp -q -o ConnectTimeout=5 root@asgard:"$src_remote" "$local_tmp" 2>/dev/null; then
+        echo "⚠️  scp from asgard failed — using existing fixture"
+        rm -f "$local_tmp"
+        return 0
+    fi
+
+    if ! python3 "$SCRIPT_DIR/scripts/build_history_fixture.py" \
+            --out "$out" "$local_tmp" >/dev/null 2>&1; then
+        echo "⚠️  fixture build failed — using existing fixture"
+        rm -f "$local_tmp"
+        return 0
+    fi
+
+    rm -f "$local_tmp"
+    echo "✅ Fixture refreshed → fixtures/history_seed.live.sqlite"
+}
+
 dev_up() {
     require_docker
+    refresh_fixture_from_asgard
     echo "🧪 Starting dev container (mock mode) on http://localhost:5099/ ..."
     $DC $DEV_COMPOSE up -d --build
     if ! wait_for_health; then
@@ -205,6 +239,8 @@ run_tests() {
         echo "📥 Downloading Chromium for Playwright (one-time)..."
         ( cd "$SCRIPT_DIR" && npx playwright install chromium )
     fi
+
+    refresh_fixture_from_asgard
 
     echo "🚀 Bringing up dev container..."
     $DC $DEV_COMPOSE up -d --build
