@@ -6,7 +6,15 @@ services:
     image: pvswatch:latest
     container_name: pvswatch
     restart: unless-stopped
-    network_mode: host
+    # Bridge (default), NOT host. The tailscale sidecar joins this
+    # container's netns via `network_mode: service:monitor` and creates a
+    # tailscale0 TUN + iptables rules inside it. Under host networking
+    # those leak into the host's namespace, hijacking ts-input/ts-forward
+    # and black-holing the host node's own tailnet traffic. Keeping
+    # monitor on bridge gives the sidecar a proper isolated netns.
+    # Outbound LAN access to PVS_IP still works via the bridge's NAT.
+    ports:
+      - "${DASHBOARD_PORT:-5001}:${DASHBOARD_PORT:-5001}"
     environment:
       - PVS_IP=${PVS_IP:?PVS_IP must be set in .env}
       - PVS_USER=${PVS_USER:-ssm_owner}

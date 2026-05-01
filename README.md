@@ -216,7 +216,7 @@ The first poll takes 30–90 s because `/devices/list` is slow. Wait, then refre
 
 ### Connection refused / hangs
 - Verify the PVS is on the same network and the IP hasn't changed (set a DHCP reservation)
-- If using `network_mode: host`, the container shares the host's network — confirm the host can reach the PVS
+- The container runs on Docker's default bridge — confirm the host (and its bridge NAT) can reach the PVS at `PVS_IP`
 - Some PVS units only expose the API on the **installer port** (an Ethernet jack inside the unit) rather than the customer-facing LAN; in that case you may need a small Linux box (Raspberry Pi works) attached to that port
 
 ### Dashboard shows "🌙 Nighttime idle"
