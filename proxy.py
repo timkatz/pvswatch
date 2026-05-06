@@ -1192,10 +1192,35 @@ def history():
         # window, which may extend before our earliest reading). Prefer
         # cumulative-counter deltas (exact, drift-free) over AVG×hours
         # integration, which is lossy under high variance (e.g. outage spikes).
+        # Use first/last (time-ordered) instead of MIN/MAX: a single garbage poll
+        # from the varserver (e.g. site_load_en briefly jumping +1283 kWh, seen
+        # 2026-05-05) blows out MAX, but first/last ignore mid-window spikes.
         totals_row = c.execute("""
             SELECT
-                MAX(NULLIF(lifetime_kwh, 0)) - MIN(NULLIF(lifetime_kwh, 0)) as solar_from_lifetime,
-                MAX(NULLIF(home_lifetime_kwh, 0)) - MIN(NULLIF(home_lifetime_kwh, 0)) as home_from_lifetime,
+                (SELECT lifetime_kwh FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND lifetime_kwh > 0
+                 ORDER BY ts ASC LIMIT 1) as solar_first_v,
+                (SELECT lifetime_kwh FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND lifetime_kwh > 0
+                 ORDER BY ts DESC LIMIT 1) as solar_last_v,
+                (SELECT ts FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND lifetime_kwh > 0
+                 ORDER BY ts ASC LIMIT 1) as solar_lt_t_start,
+                (SELECT ts FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND lifetime_kwh > 0
+                 ORDER BY ts DESC LIMIT 1) as solar_lt_t_end,
+                (SELECT home_lifetime_kwh FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND home_lifetime_kwh > 0
+                 ORDER BY ts ASC LIMIT 1) as home_first_v,
+                (SELECT home_lifetime_kwh FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND home_lifetime_kwh > 0
+                 ORDER BY ts DESC LIMIT 1) as home_last_v,
+                (SELECT ts FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND home_lifetime_kwh > 0
+                 ORDER BY ts ASC LIMIT 1) as home_lt_t_start,
+                (SELECT ts FROM readings
+                 WHERE ts > :cutoff AND ts <= :end_ts AND home_lifetime_kwh > 0
+                 ORDER BY ts DESC LIMIT 1) as home_lt_t_end,
                 AVG(production_kw) as avg_prod,
                 AVG(consumption_kw) as avg_cons,
                 AVG(net_kw) as avg_net,
@@ -1204,13 +1229,9 @@ def history():
                 MAX(ts) as t_end,
                 COUNT(*) as n,
                 COUNT(NULLIF(lifetime_kwh, 0)) as n_solar_lt,
-                COUNT(NULLIF(home_lifetime_kwh, 0)) as n_home_lt,
-                MIN(CASE WHEN lifetime_kwh IS NOT NULL AND lifetime_kwh != 0 THEN ts END) as solar_lt_t_start,
-                MAX(CASE WHEN lifetime_kwh IS NOT NULL AND lifetime_kwh != 0 THEN ts END) as solar_lt_t_end,
-                MIN(CASE WHEN home_lifetime_kwh IS NOT NULL AND home_lifetime_kwh != 0 THEN ts END) as home_lt_t_start,
-                MAX(CASE WHEN home_lifetime_kwh IS NOT NULL AND home_lifetime_kwh != 0 THEN ts END) as home_lt_t_end
-            FROM readings WHERE ts > ? AND ts <= ?
-        """, (cutoff, end_ts)).fetchone()
+                COUNT(NULLIF(home_lifetime_kwh, 0)) as n_home_lt
+            FROM readings WHERE ts > :cutoff AND ts <= :end_ts
+        """, {"cutoff": cutoff, "end_ts": end_ts}).fetchone()
 
         totals = None
         if totals_row and totals_row["n"] and totals_row["n"] > 1:
@@ -1233,14 +1254,32 @@ def history():
                     return False
                 return (lt_t_end - lt_t_start) / window_span >= 0.95
 
-            solar_kwh = (totals_row["solar_from_lifetime"] or 0) if coverage_ok(
+            # Sanity-cap a lifetime-counter delta against AVG×hours. first/last
+            # ignores mid-window spikes; this catches the edge case where the
+            # spike sits at the very first or last populated row. Generous
+            # factor (4×) avoids rejecting legitimate deltas when AVG is
+            # depressed by sparse sampling.
+            def trust_delta(lt_kwh, avg_kw):
+                avg_kwh = max(0, (avg_kw or 0) * elapsed_h)
+                if avg_kwh < 0.5:
+                    return True  # AVG too small to compare against
+                return lt_kwh <= avg_kwh * 4 + 1
+
+            solar_first = totals_row["solar_first_v"]
+            solar_last = totals_row["solar_last_v"]
+            solar_lt = max(0, (solar_last or 0) - (solar_first or 0)) if (solar_first and solar_last) else 0
+            solar_kwh = solar_lt if (coverage_ok(
                 totals_row["n_solar_lt"], totals_row["solar_lt_t_start"], totals_row["solar_lt_t_end"]
-            ) else 0
+            ) and trust_delta(solar_lt, totals_row["avg_prod"])) else 0
             if solar_kwh < 0.01:
                 solar_kwh = max(0, (totals_row["avg_prod"] or 0) * elapsed_h)
-            home_kwh = (totals_row["home_from_lifetime"] or 0) if coverage_ok(
+
+            home_first = totals_row["home_first_v"]
+            home_last = totals_row["home_last_v"]
+            home_lt = max(0, (home_last or 0) - (home_first or 0)) if (home_first and home_last) else 0
+            home_kwh = home_lt if (coverage_ok(
                 totals_row["n_home_lt"], totals_row["home_lt_t_start"], totals_row["home_lt_t_end"]
-            ) else 0
+            ) and trust_delta(home_lt, totals_row["avg_cons"])) else 0
             if home_kwh < 0.01:
                 home_kwh = max(0, (totals_row["avg_cons"] or 0) * elapsed_h)
             # PVS net_p convention: positive = importing from grid, negative = exporting.
