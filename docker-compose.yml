@@ -50,6 +50,11 @@ services:
       TS_HOSTNAME: ${TS_HOSTNAME:-pvswatch}
       TS_STATE_DIR: /var/lib/tailscale
       TS_USERSPACE: "false"
+      # Asgard runs its own tailscaled on the host. Two daemons both managing
+      # netfilter (default --netfilter-mode=on) clobber each other's chains
+      # over time and break UDP egress from this bridge netns, which kills
+      # DERP. Only the host should manage netfilter; sidecar opts out.
+      TS_EXTRA_ARGS: "--netfilter-mode=off"
     volumes:
       - ${TS_STATE_DIR:-./tailscale-state}:/var/lib/tailscale
       - /dev/net/tun:/dev/net/tun
