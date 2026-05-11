@@ -6,13 +6,16 @@ services:
     image: pvswatch:latest
     container_name: pvswatch
     restart: unless-stopped
-    # Bridge (default), NOT host. The tailscale sidecar joins this
-    # container's netns via `network_mode: service:monitor` and creates a
-    # tailscale0 TUN + iptables rules inside it. Under host networking
-    # those leak into the host's namespace, hijacking ts-input/ts-forward
-    # and black-holing the host node's own tailnet traffic. Keeping
-    # monitor on bridge gives the sidecar a proper isolated netns.
-    # Outbound LAN access to PVS_IP still works via the bridge's NAT.
+    # Bridge (default), NOT host. The tailscale sidecar is a separate
+    # service on the same bridge and reaches us via Docker DNS at
+    # `http://monitor:${DASHBOARD_PORT}` — NOT via a shared netns.
+    # Sharing the netns (previously `network_mode: service:monitor` on
+    # the sidecar) is fragile: any rebuild/restart of this container
+    # destroys its netns, and the sidecar — left in place by compose's
+    # default no-recreate semantics — gets stranded in a netns with
+    # only `lo`. DERP fails, the tailnet node goes offline, the URL
+    # stops resolving (issue #3). Decoupled netnses fix that class of
+    # bug. Outbound LAN access to PVS_IP still works via bridge NAT.
     ports:
       - "${DASHBOARD_PORT:-5001}:${DASHBOARD_PORT:-5001}"
     environment:
@@ -42,10 +45,9 @@ services:
     depends_on:
       monitor:
         condition: service_healthy
-    network_mode: service:monitor
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
+    # No network_mode override: sidecar gets its own netns on the
+    # project bridge. Reaches the dashboard via Docker DNS at
+    # `http://monitor:${DASHBOARD_PORT}` (see command below).
     environment:
       TS_HOSTNAME: ${TS_HOSTNAME:-pvswatch}
       TS_STATE_DIR: /var/lib/tailscale
@@ -55,7 +57,6 @@ services:
       TS_USERSPACE: "true"
     volumes:
       - ${TS_STATE_DIR:-./tailscale-state}:/var/lib/tailscale
-      - /dev/net/tun:/dev/net/tun
     healthcheck:
       test: ["CMD", "sh", "-c", "tailscale status --json 2>/dev/null | grep -qE '\"Online\"\\s*:\\s*true'"]
       interval: 30s
@@ -65,12 +66,11 @@ services:
     command: |
       sh -lc '
         set -e
-        # --tun=userspace-networking: do not create a kernel TUN, do not touch
-        # netfilter. The previous kernel-mode setup raced with the host
-        # tailscaled (which also manages netfilter) and periodically lost
-        # bridge egress, killing DERP. Userspace mode runs the WireGuard +
-        # HTTPS serve stack entirely inside the tailscaled process so we no
-        # longer share the netfilter surface with the host daemon.
+        # --tun=userspace-networking: no kernel TUN, no netfilter rules.
+        # WireGuard runs entirely in-process. Combined with the sidecar
+        # being on its own bridge netns, this avoids both the host
+        # tailscaled netfilter conflict and the need for NET_ADMIN /
+        # SYS_MODULE / /dev/net/tun.
         tailscaled --tun=userspace-networking --state=/var/lib/tailscale/tailscaled.state &
         sleep 3
         for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
@@ -82,8 +82,9 @@ services:
           echo "tailscale up failed (attempt $$i/12), retrying in 5s..."
           sleep 5
         done
-        # Reset any stale binding (e.g. from a TS_HOSTNAME change) before re-binding
+        # Reset any stale binding (e.g. previous shared-netns config
+        # pointing at 127.0.0.1, or a TS_HOSTNAME change) before re-binding
         tailscale serve reset >/dev/null 2>&1 || true
-        tailscale serve --bg --https=443 http://127.0.0.1:${DASHBOARD_PORT:-5001}
+        tailscale serve --bg --https=443 http://monitor:${DASHBOARD_PORT:-5001}
         tail -f /dev/null
       '
