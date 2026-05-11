@@ -49,12 +49,10 @@ services:
     environment:
       TS_HOSTNAME: ${TS_HOSTNAME:-pvswatch}
       TS_STATE_DIR: /var/lib/tailscale
-      TS_USERSPACE: "false"
-      # Asgard runs its own tailscaled on the host. Two daemons both managing
-      # netfilter (default --netfilter-mode=on) clobber each other's chains
-      # over time and break UDP egress from this bridge netns, which kills
-      # DERP. Only the host should manage netfilter; sidecar opts out.
-      TS_EXTRA_ARGS: "--netfilter-mode=off"
+      # Userspace networking (see --tun=userspace-networking below). Set for
+      # documentation; we invoke tailscaled directly so this env var alone
+      # would not take effect.
+      TS_USERSPACE: "true"
     volumes:
       - ${TS_STATE_DIR:-./tailscale-state}:/var/lib/tailscale
       - /dev/net/tun:/dev/net/tun
@@ -67,7 +65,13 @@ services:
     command: |
       sh -lc '
         set -e
-        tailscaled --state=/var/lib/tailscale/tailscaled.state &
+        # --tun=userspace-networking: do not create a kernel TUN, do not touch
+        # netfilter. The previous kernel-mode setup raced with the host
+        # tailscaled (which also manages netfilter) and periodically lost
+        # bridge egress, killing DERP. Userspace mode runs the WireGuard +
+        # HTTPS serve stack entirely inside the tailscaled process so we no
+        # longer share the netfilter surface with the host daemon.
+        tailscaled --tun=userspace-networking --state=/var/lib/tailscale/tailscaled.state &
         sleep 3
         for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
           if [ -n "$$TS_AUTHKEY" ]; then
