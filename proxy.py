@@ -26,6 +26,7 @@ Configuration is read from environment variables (set via .env file):
 from flask import Flask, request, Response, send_file, jsonify
 import requests
 import json
+import math
 import os
 import time
 import logging
@@ -62,7 +63,33 @@ log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, log_level, logging.INFO), format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+def _sanitize_nonfinite(obj):
+    """Recursively replace NaN/±Inf floats with None. Python's json module
+    emits bare NaN/Infinity tokens, which browsers reject as invalid JSON.
+    The PVS reports e.g. livedata soc=NaN right after a reboot before the
+    battery has re-registered."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _sanitize_nonfinite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_nonfinite(v) for v in obj]
+    return obj
+
+
+def _json_dumps(obj, **kw):
+    return json.dumps(_sanitize_nonfinite(obj), **kw)
+
+
 app = Flask(__name__, static_folder=".")
+
+
+class _SafeJSONProvider(app.json_provider_class):
+    def dumps(self, obj, **kw):
+        return super().dumps(_sanitize_nonfinite(obj), **kw)
+
+
+app.json = _SafeJSONProvider(app)
 sessions = {}
 
 # ── SQLite time-series storage ─────────────────────────────────────────
@@ -521,13 +548,13 @@ def _supplement_devices(devices_json, ip, sess):
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
         _inject_battery(data, livedata)
         _inject_battery_units(data, _fetch_ess_vars(sess, ip))
-        return json.dumps(data), livedata
+        return _json_dumps(data), livedata
 
     # Meters missing — supplement from full varserver data
     logger.info("Meters missing, supplementing from varserver")
     vars_data = _fetch_vars(sess, ip)
     if not vars_data:
-        return json.dumps(data), livedata
+        return _json_dumps(data), livedata
 
     if "PVS5-METER-C" not in types:
         meter_c = _build_meter_device(vars_data, 0, "c")
@@ -580,7 +607,7 @@ def _supplement_devices(devices_json, ip, sess):
     # vars_data was fetched above for the meter supplement; reuse it for
     # per-unit battery details so we don't make a second varserver call.
     _inject_battery_units(data, vars_data)
-    return json.dumps(data), livedata
+    return _json_dumps(data), livedata
 
 
 def _inject_battery(data, livedata):
