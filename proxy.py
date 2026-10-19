@@ -339,16 +339,14 @@ def _load_dashboard():
     with open("solar_dashboard.html", "r") as f:
         DASHBOARD_HTML = f.read()
 
-    if PVS_IP and PVS_PASS:
+    if PVS_IP:
+        # Only the IP (shown in the system info card). Never inject user/pass:
+        # the browser doesn't need them and they'd leak into page source and
+        # request logs.
         inject = (
             "<script>\n"
             "  // Server-side config injected by proxy from .env\n"
-            f"  // ip={PVS_IP} user={PVS_USER} pass=****\n"
-            "  window.__SOLAR_CONFIG__ = {\n"
-            f"    ip: \"{PVS_IP}\",\n"
-            f"    user: \"{PVS_USER}\",\n"
-            f"    pass: \"{PVS_PASS}\"\n"
-            "  };\n"
+            f"  window.__SOLAR_CONFIG__ = {{ ip: {json.dumps(PVS_IP)} }};\n"
             "</script>\n"
         )
         head_pos = DASHBOARD_HTML.find("<head>")

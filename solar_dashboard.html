@@ -912,27 +912,10 @@ let stopFetch = false;
 let refreshTmrID = null;
 let firstLoad = true;
 
-if ((params.get('user') || params.get('pass')) && !params.get('ip')) {
-  document.getElementById('warning').textContent = "⚠ Credentials provided without IP address.";
-  document.getElementById('warning').style.display = 'block';
-  stopFetch = true;
-}
-
+// Credentials live server-side only (.env). The proxy ignores query params
+// on /devices, so never put user/pass in the URL — it lands in access logs.
 function buildProxyUrl() {
-  let url = '/devices';
-  const qs = new URLSearchParams();
-  if (params.get('ip')) qs.set('ip', params.get('ip'));
-  if (params.get('user')) qs.set('user', params.get('user'));
-  if (params.get('pass')) qs.set('pass', params.get('pass'));
-  const q = qs.toString();
-  return q ? url + '?' + q : url;
-}
-
-function getIpFromUrl(defaultIp) {
-  for (const [key, value] of params.entries()) {
-    if (key.toLowerCase() === 'ip' && value) return value;
-  }
-  return defaultIp;
+  return '/devices';
 }
 
 function setStatus(state, text) {
@@ -1006,34 +989,16 @@ async function fetchData() {
   if (stopFetch) return;
   setStatus('live' , firstLoad ? 'Loading' : 'Refreshing');
 
-  const URL_NO_AUTH = "http://" + getIpFromUrl("172.27.153.1") + "/cgi-bin/dl_cgi/devices/list";
   const URL_AUTH = buildProxyUrl();
   let res = null;
   let urlStr = "";
 
   try {
-    if (!params.get('user') && !params.get('pass')) {
-      urlStr = URL_NO_AUTH;
-      res = await fetch(URL_NO_AUTH);
-    } else {
-      urlStr = URL_AUTH;
-      res = await fetch(URL_AUTH, { method: 'GET' });
-    }
+    urlStr = URL_AUTH;
+    res = await fetch(URL_AUTH, { method: 'GET' });
 
     if (!res.ok) {
       const text = await res.text().catch(()=>'');
-      if (res.status === 403 && !(params.get('user') && params.get('pass'))) {
-        document.getElementById('warning').textContent = "⚠ Your PVS firmware requires authentication.";
-        document.getElementById('warning').style.display = 'block';
-        setStatus('error', 'Auth Required');
-        stopFetch = true; return;
-      }
-      if (res.status === 403 && (params.get('user') && params.get('pass'))) {
-        document.getElementById('warning').textContent = "⚠ Authentication failed. Check credentials.";
-        document.getElementById('warning').style.display = 'block';
-        setStatus('error', 'Auth Failed');
-        stopFetch = true; return;
-      }
       setStatus('error', 'HTTP ' + res.status);
       document.getElementById('updated').textContent = 'Error: HTTP ' + res.status + ' — ' + text.substring(0, 100);
       return;
