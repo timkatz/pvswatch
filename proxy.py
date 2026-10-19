@@ -359,9 +359,9 @@ def _load_dashboard():
             insert_pos = head_pos + len("<head>")
             DASHBOARD_HTML = DASHBOARD_HTML[:insert_pos] + "\n" + inject + DASHBOARD_HTML[insert_pos:]
 
-    logger.info("Dashboard HTML loaded (%d bytes), config: ip=%s user=%s pass=****%s",
+    logger.info("Dashboard HTML loaded (%d bytes), config: ip=%s user=%s pass=%s",
                 len(DASHBOARD_HTML), PVS_IP, PVS_USER,
-                PVS_PASS[-2:] if len(PVS_PASS) >= 2 else "N/A")
+                "set" if PVS_PASS else "not set")
 
 
 # ── Varserver: fetch live and cached data ─────────────────────────────
