@@ -205,6 +205,11 @@ def _record_reading(devices_json_str, livedata=None):
     # Sign convention: battery_kw > 0 = discharging, < 0 = charging.
     battery_kw = float(livedata.get("ess_p", 0)) if livedata else 0
     battery_soc = float(livedata.get("soc", 0)) if livedata else 0
+    # Prefer the response's battery.soc, which falls back to the per-unit
+    # average when livedata's aggregate is stuck at 0 (see _inject_battery_units).
+    resp_soc = (data.get("battery") or {}).get("soc")
+    if isinstance(resp_soc, (int, float)) and math.isfinite(resp_soc):
+        battery_soc = float(resp_soc)
     backup_min = float(livedata.get("backupTimeRemaining", 0)) if livedata else 0
     battery_lifetime_kwh = _cumulative(livedata.get("ess_en")) if livedata else None
     home_lifetime_kwh = _cumulative(livedata.get("site_load_en")) if livedata else None
@@ -678,6 +683,13 @@ def _inject_battery_units(data, vars_data):
         })
     if units:
         data["battery"]["units"] = units
+        # The PVS's aggregate livedata soc can sit at 0 (or NaN) for hours
+        # after the battery re-registers, while each unit already reports a
+        # real socVal. Fall back to the unit average so the card isn't 0%.
+        agg = data["battery"].get("soc")
+        unit_socs = [u["soc"] for u in units if u["soc"] and math.isfinite(u["soc"])]
+        if unit_socs and not (agg and math.isfinite(agg)):
+            data["battery"]["soc"] = sum(unit_socs) / len(unit_socs)
 
 
 # ── PVS authentication ────────────────────────────────────────────────
