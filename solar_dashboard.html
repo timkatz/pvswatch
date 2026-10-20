@@ -452,6 +452,38 @@
     .savings-item .value { font-size: 1.05rem; font-weight: 800; color: var(--text); line-height: 1.1; }
     .savings-item .label { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.2; padding: 0 0.1rem; }
 
+    /* Outages: PVS offline (data gap) = slate, grid power outage = red.
+       Same colors as the shaded bands on the history chart. */
+    .outage-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; margin-bottom: 0.6rem; }
+    .outage-stat {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 0.7rem 0.9rem; display: flex; align-items: center; gap: 0.7rem; min-width: 0;
+    }
+    .outage-stat .icon { font-size: 1.3rem; }
+    .outage-stat .value { font-size: 1.3rem; font-weight: 800; line-height: 1; }
+    .outage-stat .label { font-size: 0.65rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+    .outage-stat .sub { font-size: 0.75rem; color: var(--text-dim); }
+    .og-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+    .og-dot.pvs  { background: rgba(148,163,184,0.7); }
+    .og-dot.grid { background: var(--red); }
+    .outage-list {
+      list-style: none; margin: 0 0 1rem; padding: 0; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;
+    }
+    .outage-list li {
+      display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 0.7rem;
+      padding: 0.5rem 0.9rem; font-size: 0.8rem; border-top: 1px solid var(--border);
+    }
+    .outage-list li:first-child { border-top: none; }
+    .outage-list .og-when { color: var(--text-dim); white-space: nowrap; }
+    .outage-list .og-dur { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; min-width: 4.5em; }
+    .outage-list .og-live { font-size: 0.6rem; font-weight: 800; color: var(--red); border: 1px solid var(--red); border-radius: 4px; padding: 0 0.3rem; }
+    .outage-list .og-empty { display: block; color: var(--text-dim); text-align: center; }
+    @media (max-width: 480px) {
+      .outage-list li { grid-template-columns: auto 1fr auto; }
+      .outage-list .og-when { grid-column: 2 / 4; grid-row: 2; }
+    }
+
     /* Pill button base — used by both chart-tab (time ranges) and
        chart-mode (POWER/ENERGY). Explicit dimensions defeat browser
        button user-agent style drift. */
@@ -842,6 +874,22 @@
         <span class="label">gallons not used</span>
       </div>
     </div>
+
+    <div class="section-head">
+      <h2>Outages</h2>
+      <span id="outageScope" style="font-size:0.75rem;color:var(--text-dim)"></span>
+    </div>
+    <div class="outage-summary" id="outageSummary">
+      <div class="outage-stat">
+        <span class="og-dot pvs"></span>
+        <div><span class="value" id="og_pvsCount">—</span> <span class="label">PVS offline</span><div class="sub" id="og_pvsTotal">&nbsp;</div></div>
+      </div>
+      <div class="outage-stat">
+        <span class="og-dot grid"></span>
+        <div><span class="value" id="og_gridCount">—</span> <span class="label">Power outages</span><div class="sub" id="og_gridTotal">&nbsp;</div></div>
+      </div>
+    </div>
+    <ul class="outage-list" id="outageList"></ul>
 
     <div class="section-head"><h2>Voltage</h2></div>
     <div class="sub-metrics" id="voltageRow">
@@ -1564,7 +1612,11 @@ async function fetchHistory() {
     const url = win
       ? `/history?range=${currentRange}&start=${win.start}&end=${win.end}`
       : `/history?range=${currentRange}`;
-    const res = await fetch(url);
+    const [res, ores] = await Promise.all([
+      fetch(url),
+      fetch(url.replace('/history?', '/outages?')).catch(() => null),
+    ]);
+    if (ores && ores.ok) applyOutages(await ores.json());
     if (!res.ok) return;
     const data = await res.json();
     lastTotals = data.period_totals;
@@ -1575,6 +1627,80 @@ async function fetchHistory() {
   } catch (e) {
     console.error('History fetch error:', e);
   }
+}
+
+// ── Outages ──────────────────────────────────────────────────────────
+// PVS offline = gap in recorded history (WiFi drop / PVS reboot / hang).
+// Power outage = grid loss seen by the host UPS (if tracking is set up).
+let lastOutages = [];
+
+function fmtOutageDur(s) {
+  if (s < 60) return Math.round(s) + 's';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + 'h ' + (m % 60) + 'm';
+  return (h / 24).toFixed(1) + 'd';
+}
+
+function applyOutages(o) {
+  lastOutages = o.outages || [];
+  const sum = o.summary || {};
+  const scope = document.getElementById('outageScope');
+  if (scope) scope.textContent = 'for ' + (RANGE_LABEL[currentRange] || currentRange) + ' · shaded on chart';
+  const pvs = sum.pvs || { count: 0, total_s: 0 };
+  const grid = sum.grid || { count: 0, total_s: 0 };
+  document.getElementById('og_pvsCount').textContent = pvs.count;
+  document.getElementById('og_pvsTotal').textContent = pvs.count ? fmtOutageDur(pvs.total_s) + ' total' : 'none';
+  document.getElementById('og_gridCount').textContent = o.grid_tracking ? grid.count : '—';
+  document.getElementById('og_gridTotal').textContent = !o.grid_tracking ? 'not tracked'
+    : grid.count ? fmtOutageDur(grid.total_s) + ' total' : 'none';
+
+  const list = document.getElementById('outageList');
+  const MAX = 12;
+  const rows = lastOutages.slice(0, MAX).map(e => {
+    const when = new Date(e.start * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const what = e.kind === 'grid' ? 'Power outage' : 'PVS offline';
+    const live = e.ongoing ? ' <span class="og-live">NOW</span>' : '';
+    return `<li data-kind="${e.kind}"><span class="og-dot ${e.kind}"></span><span>${what}${live}</span>` +
+           `<span class="og-when">${when}</span><span class="og-dur">${fmtOutageDur(e.duration_s)}</span></li>`;
+  });
+  if (lastOutages.length > MAX) rows.push(`<li><span class="og-empty" style="grid-column:1/-1">+${lastOutages.length - MAX} more</span></li>`);
+  list.innerHTML = rows.length ? rows.join('')
+    : '<li><span class="og-empty" style="grid-column:1/-1">No outages in this period ✓</span></li>';
+}
+
+// Chart.js plugin: shade each outage across the x-axis. The x scale is a
+// category axis of bucket timestamps (gaps aren't padded), so map epoch →
+// pixel by interpolating between neighbouring buckets.
+function outageBandsPlugin(buckets) {
+  return {
+    id: 'outageBands',
+    beforeDatasetsDraw(chart) {
+      if (!lastOutages.length || buckets.length < 2) return;
+      const { ctx, chartArea: a, scales: { x } } = chart;
+      const n = buckets.length - 1;
+      const pix = t => {
+        if (t <= buckets[0]) return x.getPixelForValue(0);
+        if (t >= buckets[n]) return x.getPixelForValue(n);
+        let lo = 0, hi = n;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (buckets[mid] <= t) lo = mid; else hi = mid; }
+        const f = (t - buckets[lo]) / (buckets[hi] - buckets[lo]);
+        return x.getPixelForValue(lo) + f * (x.getPixelForValue(hi) - x.getPixelForValue(lo));
+      };
+      ctx.save();
+      for (const o of lastOutages) {
+        const end = o.end ?? Date.now() / 1000;
+        if (end < buckets[0] || o.start > buckets[n]) continue;
+        let x0 = pix(o.start), x1 = pix(end);
+        if (x1 - x0 < 2) { const c = (x0 + x1) / 2; x0 = c - 1; x1 = c + 1; }
+        x0 = Math.max(x0, a.left); x1 = Math.min(x1, a.right);
+        ctx.fillStyle = o.kind === 'grid' ? 'rgba(239,68,68,0.22)' : 'rgba(148,163,184,0.16)';
+        ctx.fillRect(x0, a.top, x1 - x0, a.bottom - a.top);
+      }
+      ctx.restore();
+    },
+  };
 }
 
 // ── Chart render ─────────────────────────────────────────────────────
@@ -1673,7 +1799,10 @@ function renderChart(data) {
   // Always destroy + recreate when mode/type changes — Chart.js can't switch type in place
   if (powerChart) { powerChart.destroy(); powerChart = null; }
   const ctx = canvas.getContext('2d');
-  powerChart = new Chart(ctx, { type: chartType, data: { labels, datasets }, options });
+  powerChart = new Chart(ctx, {
+    type: chartType, data: { labels, datasets }, options,
+    plugins: [outageBandsPlugin(readings.map(r => r.bucket))],
+  });
 }
 
 // ── Panel drilldown modal ───────────────────────────────────────────

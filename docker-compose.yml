@@ -32,9 +32,15 @@ services:
       - NTFY_TOKEN=${NTFY_TOKEN:-}
       - NTFY_EMAIL=${NTFY_EMAIL:-}
       - ALERT_STALE_MINS=${ALERT_STALE_MINS:-30}
+      - OUTAGE_GAP_MINS=${OUTAGE_GAP_MINS:-20}
+      # Grid outage tracking: point UPS_LOG_DIR at the host dir holding
+      # apcupsd.events (e.g. /var/log). Unset = mounts DATA_DIR, file absent,
+      # tracking off.
+      - UPS_EVENTS_FILE=/ups/apcupsd.events
       - DB_PATH=/data/solar_history.db
     volumes:
       - ${DATA_DIR:-./data}:/data
+      - ${UPS_LOG_DIR:-./data}:/ups:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${DASHBOARD_PORT:-5001}/health')"]
       interval: 30s

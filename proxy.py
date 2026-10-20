@@ -35,6 +35,7 @@ import os
 import time
 import logging
 import urllib3
+import re
 import threading
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -56,6 +57,12 @@ DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath
 # to a real PVS needed). See fixtures/ and pvswatch.sh test.
 MOCK_PVS = os.environ.get("MOCK_PVS", "0") == "1"
 FIXTURES_DIR = os.environ.get("FIXTURES_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+
+# Outage tracking. PVS/WiFi outages are derived from gaps in `readings`
+# longer than OUTAGE_GAP_MINS. Grid power outages come from an apcupsd
+# events log (optional; e.g. a UPS on the host running pvswatch).
+OUTAGE_GAP_MINS = int(os.environ.get("OUTAGE_GAP_MINS", "20"))
+UPS_EVENTS_FILE = os.environ.get("UPS_EVENTS_FILE", "").strip()
 
 # Savings model: avoided cost = min(solar_kwh, home_kwh) * COST_PER_KWH
 # CO2 model: solar_kwh * CO2_LBS_PER_KWH (full production offsets grid CO2)
@@ -138,6 +145,12 @@ def _init_db():
         v_ac REAL,
         temp_c REAL,
         PRIMARY KEY (ts, serial)
+    )""")
+    # Grid power outages ingested from the UPS events log. end NULL = ongoing.
+    c.execute("""CREATE TABLE IF NOT EXISTS grid_outages (
+        start REAL PRIMARY KEY,
+        end REAL,
+        source TEXT
     )""")
     # Idempotent migrations.
     # battery_*  added 2026-04-25 — sign: battery_kw > 0 = discharging.
@@ -865,12 +878,16 @@ def _background_refresh():
     logger.info("Starting background refresh (every %ds)", REFRESH_SECS)
     if NTFY_URL:
         logger.info("Stale-data alerts enabled (after %d min)", ALERT_STALE_MINS)
+    if UPS_EVENTS_FILE:
+        logger.info("Grid outage tracking from %s", UPS_EVENTS_FILE)
     # Initial fetch
     _refresh_data()
+    _ingest_ups_events()
     while True:
         time.sleep(REFRESH_SECS)
         _refresh_data()
         _check_stale_alert()
+        _ingest_ups_events()
 
 
 # ── Mock mode (MOCK_PVS=1) ────────────────────────────────────────────
@@ -1113,6 +1130,19 @@ def _seed_from_fixture(fixture_path):
                 n_readings, n_panel, int(offset))
 
 
+def _seed_mock_outages():
+    """One synthetic grid outage (3h ago, 4 min) so the Outages card and
+    chart bands have something to render in mock mode."""
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        if conn.execute("SELECT COUNT(*) FROM grid_outages").fetchone()[0] == 0:
+            start = time.time() - 3 * 3600
+            conn.execute("INSERT INTO grid_outages (start, end, source) VALUES (?, ?, 'mock')",
+                         (start, start + 240))
+            conn.commit()
+        conn.close()
+
+
 def _background_refresh_mock():
     """Mock equivalent of _background_refresh."""
     logger.info("Starting mock refresh loop (every %ds)", REFRESH_SECS)
@@ -1196,6 +1226,34 @@ def devices():
     return Response("Timed out waiting for PVS data.", status=504)
 
 
+# ── Time windows ──────────────────────────────────────────────────────
+RANGE_SECS = {
+    "1m": 60, "1h": 3600, "6h": 21600, "24h": 86400,
+    "7d": 604800, "30d": 2592000, "90d": 7776000, "1y": 31536000,
+}
+
+
+def _resolve_window(range_str, start_param=None, end_param=None):
+    """Return (cutoff, end_ts, range_secs) for a ?range= / ?start=&end= query.
+    "all" = since first reading. Raises ValueError on bad start/end."""
+    if start_param and end_param:
+        cutoff = float(start_param)
+        end_ts = float(end_param)
+        return cutoff, end_ts, max(60, int(end_ts - cutoff))
+    end_ts = time.time()
+    if range_str == "all":
+        try:
+            conn0 = sqlite3.connect(DB_PATH)
+            earliest_row = conn0.execute("SELECT MIN(ts) FROM readings").fetchone()
+            conn0.close()
+            range_secs = max(60, int(end_ts - (earliest_row[0] or end_ts)))
+        except Exception:
+            range_secs = 86400
+    else:
+        range_secs = RANGE_SECS.get(range_str, 86400)
+    return end_ts - range_secs, end_ts, range_secs
+
+
 # ── History API ────────────────────────────────────────────────────────
 @app.route("/history", methods=["GET"])
 def history():
@@ -1213,33 +1271,10 @@ def history():
     start_param = request.args.get("start")
     end_param = request.args.get("end")
 
-    # Parse range. "all" = since first reading.
-    range_map = {
-        "1m": 60, "1h": 3600, "6h": 21600, "24h": 86400,
-        "7d": 604800, "30d": 2592000, "90d": 7776000, "1y": 31536000,
-    }
-    if start_param and end_param:
-        try:
-            cutoff = float(start_param)
-            end_ts = float(end_param)
-            range_secs = max(60, int(end_ts - cutoff))
-        except ValueError:
-            return Response("Invalid start/end timestamps", status=400)
-    elif range_str == "all":
-        # Compute span from earliest reading
-        try:
-            conn0 = sqlite3.connect(DB_PATH)
-            earliest_row = conn0.execute("SELECT MIN(ts) FROM readings").fetchone()
-            conn0.close()
-            range_secs = max(60, int(time.time() - (earliest_row[0] or time.time())))
-        except Exception:
-            range_secs = 86400
-        end_ts = time.time()
-        cutoff = end_ts - range_secs
-    else:
-        range_secs = range_map.get(range_str, 86400)
-        end_ts = time.time()
-        cutoff = end_ts - range_secs
+    try:
+        cutoff, end_ts, range_secs = _resolve_window(range_str, start_param, end_param)
+    except ValueError:
+        return Response("Invalid start/end timestamps", status=400)
 
     # Auto-resample: aim for ~200-400 points max
     if resample:
@@ -1556,6 +1591,109 @@ def panel_history(serial):
 
 
 # ── Health check ──────────────────────────────────────────────────────
+# ── Outage tracking ───────────────────────────────────────────────────
+_UPS_LINE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d [+-]\d{4})\s+(.*)$")
+
+
+def _ingest_ups_events():
+    """Parse the apcupsd events log into grid_outages. The log is usually on
+    tmpfs and lost on host reboot, so we persist each outage as we see it.
+    Idempotent: keyed on start time; an ongoing outage (end NULL) gets its
+    end filled in on a later pass."""
+    if not UPS_EVENTS_FILE or not os.path.isfile(UPS_EVENTS_FILE):
+        return
+    try:
+        with open(UPS_EVENTS_FILE, "r", errors="replace") as f:
+            lines = f.readlines()
+    except OSError as e:
+        logger.debug("UPS events read failed: %s", e)
+        return
+    outages, open_start = [], None
+    for line in lines:
+        m = _UPS_LINE.match(line.strip())
+        if not m:
+            continue
+        try:
+            ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S %z").timestamp()
+        except ValueError:
+            continue
+        msg = m.group(2)
+        if msg.startswith("Power failure"):
+            if open_start is None:
+                open_start = ts
+        elif open_start is not None and (msg.startswith("Mains returned")
+                                         or msg.startswith("Power is back")
+                                         or "startup succeeded" in msg):
+            # A daemon restart mid-outage means the host lost power and came
+            # back — treat that as the end.
+            outages.append((open_start, ts))
+            open_start = None
+    if open_start is not None:
+        outages.append((open_start, None))
+    if not outages:
+        return
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        conn.executemany(
+            "INSERT INTO grid_outages (start, end, source) VALUES (?, ?, 'ups') "
+            "ON CONFLICT(start) DO UPDATE SET end = COALESCE(excluded.end, grid_outages.end)",
+            outages)
+        conn.commit()
+        conn.close()
+
+
+def _pvs_outages(conn, cutoff, end_ts):
+    """Gaps in `readings` longer than OUTAGE_GAP_MINS, overlapping the window.
+    start = last good reading, end = first reading back (None if ongoing)."""
+    gap = OUTAGE_GAP_MINS * 60
+    prev = conn.execute("SELECT MAX(ts) FROM readings WHERE ts < ?", (cutoff,)).fetchone()[0]
+    ts_list = [r[0] for r in conn.execute(
+        "SELECT ts FROM readings WHERE ts >= ? AND ts <= ? ORDER BY ts", (cutoff, end_ts))]
+    if prev is not None:
+        ts_list.insert(0, prev)
+    out = [(a, b) for a, b in zip(ts_list, ts_list[1:]) if b - a > gap]
+    if ts_list and end_ts >= time.time() - 60 and time.time() - ts_list[-1] > gap:
+        out.append((ts_list[-1], None))
+    return out
+
+
+@app.route("/outages", methods=["GET"])
+def outages():
+    """PVS-offline (data gap) and grid power (UPS) outages in a window.
+    Same ?range= / ?start=&end= semantics as /history. Newest first."""
+    try:
+        cutoff, end_ts, _ = _resolve_window(request.args.get("range", "24h"),
+                                            request.args.get("start"), request.args.get("end"))
+    except ValueError:
+        return Response("Invalid start/end timestamps", status=400)
+    now = time.time()
+    events = []
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        for a, b in _pvs_outages(conn, cutoff, end_ts):
+            events.append(("pvs", a, b))
+        for a, b in conn.execute(
+                "SELECT start, end FROM grid_outages WHERE start <= ? AND COALESCE(end, ?) >= ?",
+                (end_ts, now, cutoff)):
+            events.append(("grid", a, b))
+    finally:
+        conn.close()
+    items, summary = [], {"pvs": {"count": 0, "total_s": 0}, "grid": {"count": 0, "total_s": 0}}
+    for kind, a, b in sorted(events, key=lambda e: e[1], reverse=True):
+        dur = (b if b is not None else now) - a
+        items.append({"kind": kind, "start": a, "end": b, "duration_s": round(dur), "ongoing": b is None})
+        summary[kind]["count"] += 1
+        summary[kind]["total_s"] += round(dur)
+    return jsonify({
+        "outages": items,
+        "summary": summary,
+        "grid_tracking": bool(UPS_EVENTS_FILE and os.path.isfile(UPS_EVENTS_FILE)) or MOCK_PVS,
+        "gap_threshold_min": OUTAGE_GAP_MINS,
+        "period_start": cutoff,
+        "period_end": end_ts,
+    })
+
+
 @app.route("/health")
 def health():
     data = cache.get()
@@ -1590,6 +1728,7 @@ if __name__ == "__main__":
         logger.info("MOCK_PVS=1 — fixture mode, no PVS gateway calls will be made")
         _load_mock_fixtures()
         _seed_mock_history()
+        _seed_mock_outages()
         t = threading.Thread(target=_background_refresh_mock, daemon=True)
         t.start()
     elif PVS_IP and PVS_PASS:

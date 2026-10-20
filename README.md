@@ -160,6 +160,8 @@ All settings come from `.env`. Required fields are marked.
 | `NTFY_TOKEN` | — | Optional ntfy access token for protected topics |
 | `NTFY_EMAIL` | — | Optional: ntfy also forwards each alert to this email address |
 | `ALERT_STALE_MINS` | `30` | Minutes without fresh PVS data before alerting |
+| `OUTAGE_GAP_MINS` | `20` | A gap in history longer than this counts as a "PVS offline" outage |
+| `UPS_LOG_DIR` | — | Host directory with `apcupsd.events` (e.g. `/var/log`) for grid power outage tracking |
 | `TS_HOSTNAME` | `pvswatch` | Tailscale device name (sidecar only) |
 | `TS_AUTHKEY` | — | Optional Tailscale auth key for unattended startup |
 
@@ -176,6 +178,7 @@ The Flask app exposes these JSON endpoints — useful for Home Assistant, Grafan
 | `GET /history?range=24h` | Bucketed time-series + a `period_totals` block (kWh per source, savings, CO₂, independence %, etc.). Ranges: `1h`, `6h`, `24h`, `7d`, `30d`, `90d`, `1y`, `all` |
 | `GET /history/panels?range=24h` | Per-panel raw readings for the range (large response) |
 | `GET /panel/<serial>/history?range=24h` | Per-panel drilldown: bucketed kWh, latest snapshot, total — used by the dashboard panel modal |
+| `GET /outages?range=24h` | PVS-offline (history gaps) and grid power (UPS) outages in the window, newest first, plus per-kind count/total |
 | `GET /health` | Cache freshness, history row count, and `history_earliest` timestamp |
 
 ## Database schema

@@ -68,3 +68,16 @@ test('clicking 30D fetches history and renders chart', async ({ page }) => {
   expect(body.period_totals).not.toBeNull();
   await expect(page.locator('#powerChart')).toBeVisible();
 });
+
+test('outages API + card: mock grid outage is listed and summarized', async ({ page, request }) => {
+  const body = await (await request.get('/outages?range=24h')).json();
+  expect(body.grid_tracking).toBe(true);
+  const grid = body.outages.filter((o) => o.kind === 'grid');
+  expect(grid.length).toBeGreaterThanOrEqual(1);
+  expect(grid[0].duration_s).toBe(240);
+  expect(body.summary.grid.count).toBe(grid.length);
+
+  await expect(page.locator('#og_gridCount')).toHaveText(String(body.summary.grid.count));
+  await expect(page.locator('#og_pvsCount')).toHaveText(String(body.summary.pvs.count));
+  await expect(page.locator('#outageList li[data-kind="grid"]').first()).toContainText('4m');
+});
