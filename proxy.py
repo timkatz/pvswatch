@@ -169,6 +169,9 @@ def _init_db():
         ("battery_lifetime_kwh", "REAL"),
         ("home_lifetime_kwh", "REAL"),
         ("grid_lifetime_kwh", "REAL"),
+        # pvs_uptime_s added 2026-10-19 — PVS dl_uptime (seconds since boot).
+        # Lets /outages tell a PVS restart from a WiFi/network gap.
+        ("pvs_uptime_s", "REAL"),
     ):
         try:
             c.execute(f"ALTER TABLE readings ADD COLUMN {col} {sql_type}")
@@ -269,6 +272,11 @@ def _record_reading(devices_json_str, livedata=None):
     freq = float(meter_c.get("freq_hz", 0) if meter_c else 0)
     pf_p = float(meter_p.get("tot_pf_rto", 0) if meter_p else 0)
     pf_c = float(meter_c.get("tot_pf_rto", 0) if meter_c else 0)
+    pvs_dev = next((d for d in devices if d.get("DEVICE_TYPE") == "PVS"), None)
+    try:
+        pvs_uptime = float(pvs_dev["dl_uptime"]) if pvs_dev and pvs_dev.get("dl_uptime") is not None else None
+    except (TypeError, ValueError):
+        pvs_uptime = None
     num_panels = len(inverters)
     panels_working = sum(1 for i in inverters if (i.get("STATEDESCR") or i.get("STATE") or "").lower() == "working")
     panels_error = num_panels - panels_working
@@ -285,13 +293,13 @@ def _record_reading(devices_json_str, livedata=None):
                  sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
                  num_panels, panels_working, panels_error,
                  battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
-                 home_lifetime_kwh, grid_lifetime_kwh)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime_s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, production, consumption, net, lifetime,
                  sys_v, l1_v, l2_v, freq, pf_p, pf_c,
                  num_panels, panels_working, panels_error,
                  battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
-                 home_lifetime_kwh, grid_lifetime_kwh))
+                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime))
             # Per-panel data
             for inv in inverters:
                 serial = inv.get("SERIAL", "unknown")
@@ -865,6 +873,8 @@ def _send_ntfy(title, message, priority="default", tags=""):
 
 def _fmt_duration(secs):
     mins = int(secs // 60)
+    if mins >= 48 * 60:
+        return f"{secs / 86400:.1f}d"
     return f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
 
 
@@ -887,9 +897,23 @@ def _check_stale_alert():
     elif _stale_since is not None and stale_secs < ALERT_STALE_MINS * 60:
         down = last_ok - _stale_since
         _stale_since = None
-        logger.info("PVS data back after %s — sending recovery", _fmt_duration(down))
-        _send_ntfy("PVS back online", f"Data is flowing again after {_fmt_duration(down)}.",
+        why = _recovery_cause(down)
+        logger.info("PVS data back after %s (%s) — sending recovery", _fmt_duration(down), why)
+        _send_ntfy("PVS back online", f"Data is flowing again after {_fmt_duration(down)}. {why}",
                    tags="white_check_mark")
+
+
+def _recovery_cause(down_secs):
+    """One-line cause for the recovery alert, from the PVS's current uptime."""
+    try:
+        devices = json.loads(cache.get() or "{}").get("devices", [])
+        pvs = next((d for d in devices if d.get("DEVICE_TYPE") == "PVS"), None)
+        up = float(pvs["dl_uptime"])
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+        return "Cause unknown (no PVS uptime)."
+    if up < down_secs:
+        return f"The PVS restarted {_fmt_duration(up)} ago (power loss or reboot)."
+    return f"The PVS stayed up the whole time ({_fmt_duration(up)} uptime), so it was a WiFi/network problem."
 
 
 def _background_refresh():
@@ -968,6 +992,9 @@ def _refresh_mock():
     livedata["net_p"] = round(net, 3)
     livedata["ess_p"] = round(bat, 3)
     livedata["time"] = str(int(now))
+    for d in devices_data["devices"]:
+        if d.get("DEVICE_TYPE") == "PVS":
+            d["dl_uptime"] = str(int(now - _STARTED_AT) + 86400)
 
     # Mirror power into the devices list so the dashboard's panel/meter
     # views see consistent values.
@@ -1663,18 +1690,39 @@ def _ingest_ups_events():
         conn.close()
 
 
+def _classify_gap(a, ua, b, ub):
+    """Cause of a data gap from PVS uptime (dl_uptime) on either side.
+    If the PVS booted during the gap (uptime after < gap length, or uptime
+    went backwards) it restarted — power loss or reboot. If it stayed up the
+    whole time, the PVS was fine and the problem was WiFi/network.
+    Returns (cause, restart_at): cause is "pvs_restart", "network" or None
+    (no uptime recorded, e.g. history from before 2026-10-19)."""
+    if ub is None:
+        return None, None
+    if ub < (b - a) or (ua is not None and ub < ua):
+        return "pvs_restart", b - ub
+    return "network", None
+
+
 def _pvs_outages(conn, cutoff, end_ts):
-    """Gaps in `readings` longer than OUTAGE_GAP_MINS, overlapping the window.
-    start = last good reading, end = first reading back (None if ongoing)."""
+    """PVS-offline events overlapping the window: gaps in `readings` longer
+    than OUTAGE_GAP_MINS, plus any shorter gap where the PVS uptime shows it
+    rebooted. Returns (start, end, cause, restart_at); start = last good
+    reading, end = first reading back (None if ongoing)."""
     gap = OUTAGE_GAP_MINS * 60
-    prev = conn.execute("SELECT MAX(ts) FROM readings WHERE ts < ?", (cutoff,)).fetchone()[0]
-    ts_list = [r[0] for r in conn.execute(
-        "SELECT ts FROM readings WHERE ts >= ? AND ts <= ? ORDER BY ts", (cutoff, end_ts))]
+    prev = conn.execute(
+        "SELECT ts, pvs_uptime_s FROM readings WHERE ts < ? ORDER BY ts DESC LIMIT 1", (cutoff,)).fetchone()
+    rows = conn.execute(
+        "SELECT ts, pvs_uptime_s FROM readings WHERE ts >= ? AND ts <= ? ORDER BY ts", (cutoff, end_ts)).fetchall()
     if prev is not None:
-        ts_list.insert(0, prev)
-    out = [(a, b) for a, b in zip(ts_list, ts_list[1:]) if b - a > gap]
-    if ts_list and end_ts >= time.time() - 60 and time.time() - ts_list[-1] > gap:
-        out.append((ts_list[-1], None))
+        rows.insert(0, prev)
+    out = []
+    for (a, ua), (b, ub) in zip(rows, rows[1:]):
+        cause, restart_at = _classify_gap(a, ua, b, ub)
+        if b - a > gap or cause == "pvs_restart":
+            out.append((a, b, cause, restart_at))
+    if rows and end_ts >= time.time() - 60 and time.time() - rows[-1][0] > gap:
+        out.append((rows[-1][0], None, None, None))
     return out
 
 
@@ -1691,20 +1739,25 @@ def outages():
     events = []
     conn = sqlite3.connect(DB_PATH)
     try:
-        for a, b in _pvs_outages(conn, cutoff, end_ts):
-            events.append(("pvs", a, b))
+        for a, b, cause, restart_at in _pvs_outages(conn, cutoff, end_ts):
+            events.append(("pvs", a, b, cause, restart_at))
         for a, b in conn.execute(
                 "SELECT start, end FROM grid_outages WHERE start <= ? AND COALESCE(end, ?) >= ?",
                 (end_ts, now, cutoff)):
-            events.append(("grid", a, b))
+            events.append(("grid", a, b, None, None))
     finally:
         conn.close()
-    items, summary = [], {"pvs": {"count": 0, "total_s": 0}, "grid": {"count": 0, "total_s": 0}}
-    for kind, a, b in sorted(events, key=lambda e: e[1], reverse=True):
+    items = []
+    summary = {"pvs": {"count": 0, "total_s": 0, "by_cause": {"network": 0, "pvs_restart": 0, "unknown": 0}},
+               "grid": {"count": 0, "total_s": 0}}
+    for kind, a, b, cause, restart_at in sorted(events, key=lambda e: e[1], reverse=True):
         dur = (b if b is not None else now) - a
-        items.append({"kind": kind, "start": a, "end": b, "duration_s": round(dur), "ongoing": b is None})
+        items.append({"kind": kind, "start": a, "end": b, "duration_s": round(dur), "ongoing": b is None,
+                      "cause": cause, "restart_at": restart_at})
         summary[kind]["count"] += 1
         summary[kind]["total_s"] += round(dur)
+        if kind == "pvs":
+            summary["pvs"]["by_cause"][cause or "unknown"] += 1
     return jsonify({
         "outages": items,
         "summary": summary,

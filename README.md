@@ -179,7 +179,7 @@ The Flask app exposes these JSON endpoints — useful for Home Assistant, Grafan
 | `GET /history?range=24h` | Bucketed time-series + a `period_totals` block (kWh per source, savings, CO₂, independence %, etc.). Ranges: `1h`, `6h`, `24h`, `7d`, `30d`, `90d`, `1y`, `all` |
 | `GET /history/panels?range=24h` | Per-panel raw readings for the range (large response) |
 | `GET /panel/<serial>/history?range=24h` | Per-panel drilldown: bucketed kWh, latest snapshot, total — used by the dashboard panel modal |
-| `GET /outages?range=24h` | PVS-offline (history gaps) and grid power (UPS) outages in the window, newest first, plus per-kind count/total |
+| `GET /outages?range=24h` | PVS-offline (history gaps) and grid power (UPS) outages in the window, newest first, plus per-kind count/total. PVS events carry a `cause` from the PVS uptime: `pvs_restart` (rebooted / lost power) or `network` (stayed up, so WiFi/network); `null` for history recorded before uptime tracking |
 | `GET /health` | Cache freshness, history row count, and `history_earliest` timestamp |
 
 ## Database schema
