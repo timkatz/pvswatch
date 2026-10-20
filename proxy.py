@@ -1150,12 +1150,14 @@ def _seed_from_fixture(fixture_path):
 
 
 def _seed_mock_outages():
-    """One synthetic grid outage (3h ago, 4 min) so the Outages card and
-    chart bands have something to render in mock mode."""
+    """One synthetic 4-min grid outage, 30 min before the newest seeded
+    reading (so it lands inside the charted data even when the fixture has
+    a long gap), for the Outages card and chart bands in mock mode."""
     with _db_lock:
         conn = sqlite3.connect(DB_PATH)
         if conn.execute("SELECT COUNT(*) FROM grid_outages").fetchone()[0] == 0:
-            start = time.time() - 3 * 3600
+            latest = conn.execute("SELECT MAX(ts) FROM readings").fetchone()[0] or time.time()
+            start = latest - 30 * 60
             conn.execute("INSERT INTO grid_outages (start, end, source) VALUES (?, ?, 'mock')",
                          (start, start + 240))
             conn.commit()

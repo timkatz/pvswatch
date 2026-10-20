@@ -1670,6 +1670,25 @@ function applyOutages(o) {
     : '<li><span class="og-empty" style="grid-column:1/-1">No outages in this period ✓</span></li>';
 }
 
+// Placeholder datasets (no data) that only exist to put the outage kinds
+// present in this window into the chart legend.
+const OUTAGE_LEGEND = {
+  grid: { label: 'Power outage', color: 'rgba(239,68,68,0.55)' },
+  pvs:  { label: 'PVS offline',  color: 'rgba(148,163,184,0.45)' },
+};
+function outageLegendDatasets(buckets) {
+  if (buckets.length < 2) return [];
+  const lo = buckets[0], hi = buckets[buckets.length - 1];
+  const kinds = new Set(lastOutages
+    .filter(o => (o.end ?? Date.now() / 1000) >= lo && o.start <= hi)
+    .map(o => o.kind));
+  return ['grid', 'pvs'].filter(k => kinds.has(k)).map(k => ({
+    label: OUTAGE_LEGEND[k].label, _outageKind: k, type: 'bar', data: [],
+    backgroundColor: OUTAGE_LEGEND[k].color, borderColor: OUTAGE_LEGEND[k].color,
+    borderWidth: 0, stack: 'outage-' + k,
+  }));
+}
+
 // Chart.js plugin: shade each outage across the x-axis. The x scale is a
 // category axis of bucket timestamps (gaps aren't padded), so map epoch →
 // pixel by interpolating between neighbouring buckets.
@@ -1688,8 +1707,15 @@ function outageBandsPlugin(buckets) {
         const f = (t - buckets[lo]) / (buckets[hi] - buckets[lo]);
         return x.getPixelForValue(lo) + f * (x.getPixelForValue(hi) - x.getPixelForValue(lo));
       };
+      // Legend toggles: each outage kind has a placeholder dataset; hide the
+      // bands when its legend entry is switched off.
+      const hiddenKinds = new Set();
+      chart.data.datasets.forEach((d, i) => {
+        if (d._outageKind && !chart.isDatasetVisible(i)) hiddenKinds.add(d._outageKind);
+      });
       ctx.save();
       for (const o of lastOutages) {
+        if (hiddenKinds.has(o.kind)) continue;
         const end = o.end ?? Date.now() / 1000;
         if (end < buckets[0] || o.start > buckets[n]) continue;
         let x0 = pix(o.start), x1 = pix(end);
@@ -1705,7 +1731,7 @@ function outageBandsPlugin(buckets) {
 
 // ── Chart render ─────────────────────────────────────────────────────
 function renderChart(data) {
-  const readings = data.readings || [];
+  let readings = data.readings || [];
   const canvas = document.getElementById('powerChart');
   const emptyEl = document.getElementById('chartEmpty');
 
@@ -1718,6 +1744,20 @@ function renderChart(data) {
   canvas.style.display = 'block';
   emptyEl.style.display = 'none';
 
+  // Make the x-axis time-linear: /history only returns buckets that have
+  // data, so a 36h PVS outage would otherwise collapse to one slot. Fill
+  // every missing bucket (and the tail up to now) with an empty slot so
+  // gaps render at true width and lines break across them.
+  const step = data.resample_seconds || 300;
+  const byBucket = new Map(readings.map(r => [r.bucket, r]));
+  const lastSlot = Math.max(readings[readings.length - 1].bucket,
+                            Math.floor(Date.now() / 1000 / step) * step);
+  const slots = [];
+  for (let b = readings[0].bucket; b <= lastSlot && slots.length < 5000; b += step) {
+    slots.push(byBucket.get(b) || { bucket: b, _empty: true });
+  }
+  readings = slots;
+
   // X-axis labels: include date for ranges > 24h
   const wantsDate = ['7d','30d','90d','1y','all'].includes(currentRange);
   const labels = readings.map(r => {
@@ -1726,10 +1766,11 @@ function renderChart(data) {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
 
-  const prodKw = readings.map(r => +(r.production_kw || 0).toFixed(3));
-  const consKw = readings.map(r => +(r.consumption_kw || 0).toFixed(3));
-  const netKw  = readings.map(r => +(r.net_kw || 0).toFixed(3));
-  const batKw  = readings.map(r => +(r.battery_kw || 0).toFixed(3));
+  const val = (r, k) => r._empty ? null : +(r[k] || 0).toFixed(3);
+  const prodKw = readings.map(r => val(r, 'production_kw'));
+  const consKw = readings.map(r => val(r, 'consumption_kw'));
+  const netKw  = readings.map(r => val(r, 'net_kw'));
+  const batKw  = readings.map(r => val(r, 'battery_kw'));
 
   let datasets, scaleY, tooltipUnit, chartType;
 
@@ -1743,12 +1784,13 @@ function renderChart(data) {
     const hPerBucket = sampleSecs / 3600;
     const round3 = v => Math.round(v * 1000) / 1000;
 
-    const solarKwh         = prodKw.map(v => round3(v * hPerBucket));
-    const homeKwh          = consKw.map(v => round3(v * hPerBucket));
-    const batDischargeKwh  = batKw.map(v => v > 0 ? round3( v * hPerBucket) : 0);
-    const batChargeKwh     = batKw.map(v => v < 0 ? round3( v * hPerBucket) : 0);  // negative
-    const gridImportKwh    = netKw.map(v => v > 0 ? round3( v * hPerBucket) : 0);  // positive
-    const gridExportKwh    = netKw.map(v => v < 0 ? round3( v * hPerBucket) : 0);  // negative
+    const kwh = (v, keep = () => true) => v == null ? null : keep(v) ? round3(v * hPerBucket) : 0;
+    const solarKwh         = prodKw.map(v => kwh(v));
+    const homeKwh          = consKw.map(v => kwh(v));
+    const batDischargeKwh  = batKw.map(v => kwh(v, x => x > 0));
+    const batChargeKwh     = batKw.map(v => kwh(v, x => x < 0));  // negative
+    const gridImportKwh    = netKw.map(v => kwh(v, x => x > 0));  // positive
+    const gridExportKwh    = netKw.map(v => kwh(v, x => x < 0));  // negative
 
     chartType = 'bar';
     tooltipUnit = 'kWh';
@@ -1799,9 +1841,11 @@ function renderChart(data) {
   // Always destroy + recreate when mode/type changes — Chart.js can't switch type in place
   if (powerChart) { powerChart.destroy(); powerChart = null; }
   const ctx = canvas.getContext('2d');
+  const buckets = readings.map(r => r.bucket);
+  datasets.push(...outageLegendDatasets(buckets));
   powerChart = new Chart(ctx, {
     type: chartType, data: { labels, datasets }, options,
-    plugins: [outageBandsPlugin(readings.map(r => r.bucket))],
+    plugins: [outageBandsPlugin(buckets)],
   });
 }
 

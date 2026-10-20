@@ -81,3 +81,11 @@ test('outages API + card: mock grid outage is listed and summarized', async ({ p
   await expect(page.locator('#og_pvsCount')).toHaveText(String(body.summary.pvs.count));
   await expect(page.locator('#outageList li[data-kind="grid"]').first()).toContainText('4m');
 });
+
+test('chart legend lists outage kinds present in the window', async ({ page }) => {
+  // 24H is the default range; the mock seeds a grid outage 3h ago.
+  await page.waitForFunction(() => typeof powerChart !== 'undefined' && powerChart
+    && powerChart.data.datasets.some((d) => d._outageKind));
+  const labels = await page.evaluate(() => powerChart.data.datasets.filter((d) => d._outageKind).map((d) => d.label));
+  expect(labels).toContain('Power outage');
+});
