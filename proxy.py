@@ -20,6 +20,10 @@ Configuration is read from environment variables (set via .env file):
   PORT           - Server port (default: 5001)
   TIMEOUT_SECS   - PVS request timeout (default: 120)
   REFRESH_SECS   - Background refresh interval (default: 300)
+  NTFY_URL       - ntfy topic URL for stale-data alerts (optional)
+  NTFY_TOKEN     - ntfy access token, if the topic requires auth (optional)
+  NTFY_EMAIL     - Also have ntfy forward alerts to this email (optional)
+  ALERT_STALE_MINS - Minutes without fresh data before alerting (default: 30)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
@@ -55,6 +59,12 @@ FIXTURES_DIR = os.environ.get("FIXTURES_DIR", os.path.join(os.path.dirname(os.pa
 
 # Savings model: avoided cost = min(solar_kwh, home_kwh) * COST_PER_KWH
 # CO2 model: solar_kwh * CO2_LBS_PER_KWH (full production offsets grid CO2)
+# Stale-data alert: push to an ntfy topic when no successful PVS refresh
+# for ALERT_STALE_MINS, and again when data comes back. Disabled if unset.
+NTFY_URL = os.environ.get("NTFY_URL", "").strip()
+NTFY_TOKEN = os.environ.get("NTFY_TOKEN", "").strip()
+NTFY_EMAIL = os.environ.get("NTFY_EMAIL", "").strip()  # ntfy also forwards to this address
+ALERT_STALE_MINS = int(os.environ.get("ALERT_STALE_MINS", "30"))
 COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
 CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
 
@@ -794,14 +804,67 @@ def _refresh_data():
         cache.fetching = False
 
 
+# ── Stale-data alerting (ntfy) ─────────────────────────────────────────
+_STARTED_AT = time.time()
+_stale_since = None  # epoch of last good data when we alerted; None = not alerted
+
+
+def _send_ntfy(title, message, priority="default", tags=""):
+    headers = {"Title": title, "Priority": priority}
+    if tags:
+        headers["Tags"] = tags
+    if NTFY_EMAIL:
+        headers["Email"] = NTFY_EMAIL
+    if NTFY_TOKEN:
+        headers["Authorization"] = f"Bearer {NTFY_TOKEN}"
+    try:
+        r = requests.post(NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=15)
+        if r.status_code >= 300:
+            logger.warning("ntfy alert failed: HTTP %s", r.status_code)
+    except Exception as e:
+        logger.warning("ntfy alert failed: %s", e)
+
+
+def _fmt_duration(secs):
+    mins = int(secs // 60)
+    return f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
+
+
+def _check_stale_alert():
+    """Alert once when the PVS has been unreachable for ALERT_STALE_MINS,
+    and once more when data starts flowing again."""
+    global _stale_since
+    if not NTFY_URL:
+        return
+    now = time.time()
+    last_ok = cache.last_fetch or _STARTED_AT
+    stale_secs = now - last_ok
+    if _stale_since is None and stale_secs >= ALERT_STALE_MINS * 60:
+        _stale_since = last_ok
+        err = cache.last_error or "no response"
+        logger.warning("No PVS data for %s — sending alert", _fmt_duration(stale_secs))
+        _send_ntfy("PVS offline",
+                   f"No data from the PVS for {_fmt_duration(stale_secs)}. Last error: {err}",
+                   priority="high", tags="warning")
+    elif _stale_since is not None and stale_secs < ALERT_STALE_MINS * 60:
+        down = last_ok - _stale_since
+        _stale_since = None
+        logger.info("PVS data back after %s — sending recovery", _fmt_duration(down))
+        _send_ntfy("PVS back online", f"Data is flowing again after {_fmt_duration(down)}.",
+                   tags="white_check_mark")
+
+
 def _background_refresh():
     """Background thread that periodically refreshes PVS data."""
     logger.info("Starting background refresh (every %ds)", REFRESH_SECS)
+    if NTFY_URL:
+        logger.info("Stale-data alerts enabled (after %d min)", ALERT_STALE_MINS)
     # Initial fetch
     _refresh_data()
     while True:
         time.sleep(REFRESH_SECS)
         _refresh_data()
+        _check_stale_alert()
 
 
 # ── Mock mode (MOCK_PVS=1) ────────────────────────────────────────────

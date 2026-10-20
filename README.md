@@ -156,6 +156,10 @@ All settings come from `.env`. Required fields are marked.
 | `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `COST_PER_KWH` | `0.30` | Utility rate ($/kWh) for the Savings card |
 | `CO2_LBS_PER_KWH` | `0.85` | Grid emissions factor for the Savings card |
+| `NTFY_URL` | — | Optional [ntfy](https://ntfy.sh) topic URL. Push alert when the PVS stops responding, and again when it recovers |
+| `NTFY_TOKEN` | — | Optional ntfy access token for protected topics |
+| `NTFY_EMAIL` | — | Optional: ntfy also forwards each alert to this email address |
+| `ALERT_STALE_MINS` | `30` | Minutes without fresh PVS data before alerting |
 | `TS_HOSTNAME` | `pvswatch` | Tailscale device name (sidecar only) |
 | `TS_AUTHKEY` | — | Optional Tailscale auth key for unattended startup |
 

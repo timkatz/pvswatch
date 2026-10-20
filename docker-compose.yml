@@ -28,6 +28,10 @@ services:
       - COST_PER_KWH=${COST_PER_KWH:-0.30}
       - CO2_LBS_PER_KWH=${CO2_LBS_PER_KWH:-0.85}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NTFY_URL=${NTFY_URL:-}
+      - NTFY_TOKEN=${NTFY_TOKEN:-}
+      - NTFY_EMAIL=${NTFY_EMAIL:-}
+      - ALERT_STALE_MINS=${ALERT_STALE_MINS:-30}
       - DB_PATH=/data/solar_history.db
     volumes:
       - ${DATA_DIR:-./data}:/data
