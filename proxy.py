@@ -23,6 +23,7 @@ Configuration is read from environment variables (set via .env file):
   NTFY_URL       - ntfy topic URL for stale-data alerts (optional)
   NTFY_TOKEN     - ntfy access token, if the topic requires auth (optional)
   NTFY_EMAIL     - Also have ntfy forward alerts to this email (optional)
+  NTFY_FALLBACK_URL / NTFY_FALLBACK_TOKEN - Second ntfy server, used if the primary fails (optional)
   ALERT_STALE_MINS - Minutes without fresh data before alerting (default: 30)
   LOG_LEVEL      - Python log level (default: INFO)
 """
@@ -71,6 +72,10 @@ UPS_EVENTS_FILE = os.environ.get("UPS_EVENTS_FILE", "").strip()
 NTFY_URL = os.environ.get("NTFY_URL", "").strip()
 NTFY_TOKEN = os.environ.get("NTFY_TOKEN", "").strip()
 NTFY_EMAIL = os.environ.get("NTFY_EMAIL", "").strip()  # ntfy also forwards to this address
+# Optional second ntfy server, used only if the primary fails (down,
+# unreachable, auth error) — e.g. self-hosted primary + ntfy.sh fallback.
+NTFY_FALLBACK_URL = os.environ.get("NTFY_FALLBACK_URL", "").strip()
+NTFY_FALLBACK_TOKEN = os.environ.get("NTFY_FALLBACK_TOKEN", "").strip()
 ALERT_STALE_MINS = int(os.environ.get("ALERT_STALE_MINS", "30"))
 COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
 CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
@@ -822,26 +827,40 @@ _STARTED_AT = time.time()
 _stale_since = None  # epoch of last good data when we alerted; None = not alerted
 
 
-def _send_ntfy(title, message, priority="default", tags=""):
+def _post_ntfy(url, token, title, message, priority, tags):
+    """POST one alert; returns True on success."""
     headers = {"Title": title, "Priority": priority}
     if tags:
         headers["Tags"] = tags
     if NTFY_EMAIL:
         headers["Email"] = NTFY_EMAIL
-    if NTFY_TOKEN:
-        headers["Authorization"] = f"Bearer {NTFY_TOKEN}"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
-        r = requests.post(NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=15)
+        r = requests.post(url, data=message.encode("utf-8"), headers=headers, timeout=15)
         if r.status_code == 400 and "Email" in headers:
             # e.g. ntfy.sh rejects email from anonymous publishers — don't let
             # that swallow the push itself.
             logger.warning("ntfy rejected email forwarding (%s); sending push only", r.text[:120])
             headers.pop("Email")
-            r = requests.post(NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=15)
+            r = requests.post(url, data=message.encode("utf-8"), headers=headers, timeout=15)
         if r.status_code >= 300:
-            logger.warning("ntfy alert failed: HTTP %s", r.status_code)
+            logger.warning("ntfy alert to %s failed: HTTP %s", url.split("//")[-1].split("/")[0], r.status_code)
+            return False
+        return True
     except Exception as e:
-        logger.warning("ntfy alert failed: %s", e)
+        logger.warning("ntfy alert to %s failed: %s", url.split("//")[-1].split("/")[0], e)
+        return False
+
+
+def _send_ntfy(title, message, priority="default", tags=""):
+    """Send to NTFY_URL; if that fails, try NTFY_FALLBACK_URL."""
+    if _post_ntfy(NTFY_URL, NTFY_TOKEN, title, message, priority, tags):
+        return True
+    if NTFY_FALLBACK_URL:
+        logger.info("Retrying alert via fallback ntfy server")
+        return _post_ntfy(NTFY_FALLBACK_URL, NTFY_FALLBACK_TOKEN, title, message, priority, tags)
+    return False
 
 
 def _fmt_duration(secs):
