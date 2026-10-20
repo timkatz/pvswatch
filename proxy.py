@@ -219,6 +219,22 @@ def _cumulative(v):
     return f if f > 0 else None
 
 
+def _pvs_uptime_now(pvs_dev):
+    """PVS uptime in seconds as of now. dl_uptime is only refreshed with the
+    rest of the device list (DATATIME, UTC "YYYY,MM,DD,HH,MM,SS"), so add the
+    time elapsed since then. None if the PVS entry has no uptime."""
+    try:
+        up = float(pvs_dev["dl_uptime"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    try:
+        dt = datetime.strptime(pvs_dev.get("DATATIME", ""), "%Y,%m,%d,%H,%M,%S").replace(tzinfo=timezone.utc)
+        up += max(0.0, time.time() - dt.timestamp())
+    except ValueError:
+        pass
+    return up
+
+
 def _record_reading(devices_json_str, livedata=None):
     """Parse device data and record a time-series reading.
     If livedata is provided, uses fresh pv_p/site_load_p values."""
@@ -272,11 +288,7 @@ def _record_reading(devices_json_str, livedata=None):
     freq = float(meter_c.get("freq_hz", 0) if meter_c else 0)
     pf_p = float(meter_p.get("tot_pf_rto", 0) if meter_p else 0)
     pf_c = float(meter_c.get("tot_pf_rto", 0) if meter_c else 0)
-    pvs_dev = next((d for d in devices if d.get("DEVICE_TYPE") == "PVS"), None)
-    try:
-        pvs_uptime = float(pvs_dev["dl_uptime"]) if pvs_dev and pvs_dev.get("dl_uptime") is not None else None
-    except (TypeError, ValueError):
-        pvs_uptime = None
+    pvs_uptime = _pvs_uptime_now(next((d for d in devices if d.get("DEVICE_TYPE") == "PVS"), None))
     num_panels = len(inverters)
     panels_working = sum(1 for i in inverters if (i.get("STATEDESCR") or i.get("STATE") or "").lower() == "working")
     panels_error = num_panels - panels_working
@@ -907,9 +919,10 @@ def _recovery_cause(down_secs):
     """One-line cause for the recovery alert, from the PVS's current uptime."""
     try:
         devices = json.loads(cache.get() or "{}").get("devices", [])
-        pvs = next((d for d in devices if d.get("DEVICE_TYPE") == "PVS"), None)
-        up = float(pvs["dl_uptime"])
-    except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+        up = _pvs_uptime_now(next((d for d in devices if d.get("DEVICE_TYPE") == "PVS"), None))
+    except (TypeError, json.JSONDecodeError):
+        up = None
+    if up is None:
         return "Cause unknown (no PVS uptime)."
     if up < down_secs:
         return f"The PVS restarted {_fmt_duration(up)} ago (power loss or reboot)."
