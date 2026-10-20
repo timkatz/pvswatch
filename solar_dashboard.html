@@ -1678,11 +1678,13 @@ const OUTAGE_LEGEND = {
   grid: { label: 'Power outage', color: 'rgba(239,68,68,0.55)' },
   pvs:  { label: 'PVS offline',  color: 'rgba(148,163,184,0.45)' },
 };
-function outageLegendDatasets(buckets) {
+function outageLegendDatasets(buckets, step) {
   if (buckets.length < 2) return [];
   const lo = buckets[0], hi = buckets[buckets.length - 1];
+  // Skip an outage that ends just as the charted data begins — its band
+  // would be clipped to nothing. Short outages mid-chart still count.
   const kinds = new Set(lastOutages
-    .filter(o => (o.end ?? Date.now() / 1000) >= lo && o.start <= hi)
+    .filter(o => (o.end ?? Date.now() / 1000) > lo + step / 2 && o.start <= hi + step)
     .map(o => o.kind));
   return ['grid', 'pvs'].filter(k => kinds.has(k)).map(k => ({
     label: OUTAGE_LEGEND[k].label, _outageKind: k, type: 'bar', data: [],
@@ -1850,7 +1852,7 @@ function renderChart(data) {
   if (powerChart) { powerChart.destroy(); powerChart = null; }
   const ctx = canvas.getContext('2d');
   const buckets = readings.map(r => r.bucket);
-  datasets.push(...outageLegendDatasets(buckets));
+  datasets.push(...outageLegendDatasets(buckets, step));
   powerChart = new Chart(ctx, {
     type: chartType, data: { labels, datasets }, options,
     plugins: [outageBandsPlugin(buckets)],
