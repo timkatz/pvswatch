@@ -1633,6 +1633,7 @@ async function fetchHistory() {
 // PVS offline = gap in recorded history (WiFi drop / PVS reboot / hang).
 // Power outage = grid loss seen by the host UPS (if tracking is set up).
 let lastOutages = [];
+let outageGapSecs = 20 * 60;  // updated from /outages gap_threshold_min
 
 function fmtOutageDur(s) {
   if (s < 60) return Math.round(s) + 's';
@@ -1645,6 +1646,7 @@ function fmtOutageDur(s) {
 
 function applyOutages(o) {
   lastOutages = o.outages || [];
+  if (o.gap_threshold_min) outageGapSecs = o.gap_threshold_min * 60;
   const sum = o.summary || {};
   const scope = document.getElementById('outageScope');
   if (scope) scope.textContent = 'for ' + (RANGE_LABEL[currentRange] || currentRange) + ' · shaded on chart';
@@ -1744,18 +1746,24 @@ function renderChart(data) {
   canvas.style.display = 'block';
   emptyEl.style.display = 'none';
 
-  // Make the x-axis time-linear: /history only returns buckets that have
-  // data, so a 36h PVS outage would otherwise collapse to one slot. Fill
-  // every missing bucket (and the tail up to now) with an empty slot so
-  // gaps render at true width and lines break across them.
+  // Make the x-axis time-linear across outages: /history only returns
+  // buckets that have data, so a 36h PVS outage would otherwise collapse to
+  // one slot. Only real gaps (longer than the outage threshold, and at least
+  // two buckets) get padded with empty slots; a single bucket skipped
+  // because the poll period (~5m12s) drifts against 5-min buckets is not.
   const step = data.resample_seconds || 300;
-  const byBucket = new Map(readings.map(r => [r.bucket, r]));
-  const lastSlot = Math.max(readings[readings.length - 1].bucket,
-                            Math.floor(Date.now() / 1000 / step) * step);
+  const gapSecs = Math.max(2 * step, outageGapSecs);
+  const nowSlot = Math.floor(Date.now() / 1000 / step) * step;
   const slots = [];
-  for (let b = readings[0].bucket; b <= lastSlot && slots.length < 5000; b += step) {
-    slots.push(byBucket.get(b) || { bucket: b, _empty: true });
-  }
+  const pad = (from, to) => {
+    for (let b = from + step; b < to && slots.length < 5000; b += step) slots.push({ bucket: b, _empty: true });
+  };
+  readings.forEach((r, i) => {
+    if (i > 0 && r.bucket - readings[i - 1].bucket > gapSecs) pad(readings[i - 1].bucket, r.bucket);
+    slots.push(r);
+  });
+  const lastB = readings[readings.length - 1].bucket;
+  if (nowSlot - lastB > gapSecs) pad(lastB, nowSlot + step);
   readings = slots;
 
   // X-axis labels: include date for ranges > 24h
