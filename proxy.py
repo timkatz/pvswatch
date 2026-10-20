@@ -819,6 +819,12 @@ def _send_ntfy(title, message, priority="default", tags=""):
         headers["Authorization"] = f"Bearer {NTFY_TOKEN}"
     try:
         r = requests.post(NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=15)
+        if r.status_code == 400 and "Email" in headers:
+            # e.g. ntfy.sh rejects email from anonymous publishers — don't let
+            # that swallow the push itself.
+            logger.warning("ntfy rejected email forwarding (%s); sending push only", r.text[:120])
+            headers.pop("Email")
+            r = requests.post(NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=15)
         if r.status_code >= 300:
             logger.warning("ntfy alert failed: HTTP %s", r.status_code)
     except Exception as e:
