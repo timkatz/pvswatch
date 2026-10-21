@@ -161,6 +161,7 @@ All settings come from `.env`. Required fields are marked.
 | `NTFY_EMAIL` | — | Optional: ntfy also forwards each alert to this email address |
 | `NTFY_FALLBACK_URL` / `NTFY_FALLBACK_TOKEN` | — | Optional second ntfy server, tried only if the primary fails |
 | `ALERT_STALE_MINS` | `30` | Minutes without fresh PVS data before alerting |
+| `MIDSTATE_POLL_SECS` | `60` | How often to check SunVault's grid/backup state; alerts on every change (`0` = off) |
 | `ALERT_BATTERY_PCT` | `20` | Alert when usable battery charge drops below this % (`0` = off); recovery alert at +5 |
 | `OUTAGE_GAP_MINS` | `20` | A gap in history longer than this counts as a "PVS offline" outage |
 | `UPS_LOG_DIR` | — | Host directory with `apcupsd.events` (e.g. `/var/log`) for grid power outage tracking |

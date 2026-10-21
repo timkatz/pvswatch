@@ -365,7 +365,12 @@
     }
     .grid-status.show { display: block; }
     .grid-status.outage { border-color: var(--red); background: rgba(239, 68, 68, 0.12); }
-    .grid-status.mismatch { border-color: var(--accent); background: rgba(245, 158, 11, 0.12); }
+    .grid-status.ok, .grid-status.unknown {
+      display: inline-flex; align-items: center; gap: 0.45rem;
+      padding: 0.3rem 0.7rem; border-radius: 9999px; font-size: 0.78rem; color: var(--text-dim);
+    }
+    .grid-status .gs-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+    .grid-status.ok .gs-dot { background: var(--green); }
     .grid-status b { display: block; margin-bottom: 0.15rem; }
     .battery-card {
       background: var(--bg-card);
@@ -1067,6 +1072,7 @@ function calendarWindow(rangeKey) {
 
 async function fetchData() {
   if (stopFetch) return;
+  fetchSunvault();
   setStatus('live' , firstLoad ? 'Loading' : 'Refreshing');
 
   const URL_AUTH = buildProxyUrl();
@@ -1466,33 +1472,47 @@ function renderBattery() {
   renderGridStatus();
 }
 
-// ── SunVault outage flag vs our own grid evidence ──────────────────────
-// livedata midstate 2 = the SunVault Hub+ thinks the grid is down (this is
-// what drives the SunStrong app's "power outage" banner). We cross-check it
-// against the UPS log (/outages) and the grid meter: if power is still being
-// imported, or the UPS is on mains, the grid is up and the flag is wrong.
+// ── SunVault grid/backup badge ──────────────────────────────────────────
+// /sunvault reports the Hub+ MID state from a 1-minute watch: on_grid (2),
+// backup (any other value) or unknown (0). The UPS log is a second opinion:
+// SunVault keeps the UPS powered during an outage, so a UPS outage while
+// SunVault says on_grid means the backup didn't pick up the house.
 let gridTracking = false;
+let lastSunvault = null;
+async function fetchSunvault() {
+  try {
+    const r = await fetch('/sunvault');
+    if (r.ok) { lastSunvault = await r.json(); renderGridStatus(); }
+  } catch (e) { /* keep the last state */ }
+}
 function renderGridStatus() {
   const el = document.getElementById('gridStatus');
-  if (!el || !liveSnapshot) return;
-  const s = liveSnapshot;
-  const sunvaultOutage = s.midstate === 2;
+  if (!el) return;
+  const sv = lastSunvault;
+  const kind = sv ? sv.kind : null;
   const upsOutage = lastOutages.some(o => o.kind === 'grid' && o.ongoing);
+  const s = liveSnapshot || {};
   const importing = s.gridKw != null && s.gridKw > 0.05;
-  const gridUp = importing || (gridTracking && !upsOutage);
+  const since = sv && sv.since
+    ? ' since ' + new Date(sv.since * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
   let cls = '', html = '';
-  if (sunvaultOutage && gridUp) {
-    cls = 'mismatch';
-    const why = [];
-    if (importing) why.push('the house is drawing ' + s.gridKw.toFixed(1) + ' kW from the grid');
-    if (gridTracking && !upsOutage) why.push('the UPS is on mains power');
-    html = '<b>⚠ SunVault reports a power outage, but the grid looks up</b>'
-      + 'The SunStrong app will show an outage too. Here, ' + why.join(' and ') + '.';
-  } else if (sunvaultOutage || upsOutage) {
+  if (kind === 'backup') {
     cls = 'outage';
-    html = '<b>⚡ Power outage</b>'
-      + (sunvaultOutage ? 'SunVault is in backup mode and powering the house.'
-                        : 'The UPS lost mains power. SunVault has not reported an outage yet.');
+    html = '<b>⚡ SunVault on backup power' + since + '</b>'
+      + (importing ? 'But the house is still drawing ' + s.gridKw.toFixed(1) + ' kW from the grid, so this may be a false reading.'
+                   : 'The grid is down and the battery is powering the house.');
+  } else if (upsOutage) {
+    cls = 'outage';
+    html = '<b>⚡ Power outage</b>' + (kind === 'on_grid'
+      ? 'The UPS lost mains power, but SunVault still says it is on grid.'
+      : 'The UPS lost mains power.');
+  } else if (kind === 'on_grid') {
+    cls = 'ok';
+    html = '<span class="gs-dot"></span>SunVault on grid' + since;
+  } else if (kind === 'unknown' && sv.midstate != null) {
+    cls = 'unknown';
+    html = '<span class="gs-dot"></span>SunVault grid state unknown (' + sv.midstate + ')' + since;
   }
   el.className = 'grid-status' + (cls ? ' show ' + cls : '');
   el.innerHTML = html;

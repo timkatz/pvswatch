@@ -25,6 +25,7 @@ Configuration is read from environment variables (set via .env file):
   NTFY_EMAIL     - Also have ntfy forward alerts to this email (optional)
   NTFY_FALLBACK_URL / NTFY_FALLBACK_TOKEN - Second ntfy server, used if the primary fails (optional)
   ALERT_STALE_MINS - Minutes without fresh data before alerting (default: 30)
+  MIDSTATE_POLL_SECS - How often to check SunVault's grid/backup state (default: 60, 0 = off)
   ALERT_BATTERY_PCT - Alert when usable battery charge drops below this % (default: 20, 0 = off)
   LOG_LEVEL      - Python log level (default: INFO)
 """
@@ -81,6 +82,9 @@ ALERT_STALE_MINS = int(os.environ.get("ALERT_STALE_MINS", "30"))
 # Low-battery alert: usable charge below this % (0 disables). Recovery fires
 # 5 points above it so a reading hovering at the line doesn't flap.
 ALERT_BATTERY_PCT = float(os.environ.get("ALERT_BATTERY_PCT", "20"))
+# SunVault grid/backup state (livedata midstate) is polled on its own, faster
+# loop so a short outage isn't missed between 5-min refreshes.
+MIDSTATE_POLL_SECS = int(os.environ.get("MIDSTATE_POLL_SECS", "60"))
 COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
 CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
 
@@ -160,6 +164,12 @@ def _init_db():
         start REAL PRIMARY KEY,
         end REAL,
         source TEXT
+    )""")
+    # SunVault MID state changes (livedata midstate), from _midstate_watch.
+    c.execute("""CREATE TABLE IF NOT EXISTS midstate_events (
+        ts REAL PRIMARY KEY,
+        value INTEGER,
+        prev INTEGER
     )""")
     # Idempotent migrations.
     # battery_*  added 2026-04-25 — sign: battery_kw > 0 = discharging.
@@ -976,6 +986,81 @@ def _recovery_cause(down_secs):
     if up < down_secs:
         return f"The PVS restarted {_fmt_duration(up)} ago (power loss or reboot)."
     return f"The PVS stayed up the whole time ({_fmt_duration(up)} uptime), so it was a WiFi/network problem."
+
+
+# ── SunVault grid/backup state (midstate) ────────────────────────────
+# livedata midstate is the Hub+ MID (main grid contactor) state. Observed:
+# 0 before the Hub+ was commissioned (grid up), 2 grid-connected. SunPower
+# names the normal state MID_STATE_CLOSED; the backup/islanded value hasn't
+# been observed yet. So: 2 = on grid, 0 = unknown, anything else = backup.
+MIDSTATE_ON_GRID, MIDSTATE_UNKNOWN = 2, 0
+_midstate = {"value": None, "since": None, "checked": None}
+
+
+def _midstate_kind(v):
+    if v is None or v == MIDSTATE_UNKNOWN:
+        return "unknown"
+    return "on_grid" if v == MIDSTATE_ON_GRID else "backup"
+
+
+def _midstate_record(value, now=None):
+    """Record a midstate reading: on change, store an event and alert."""
+    now = now or time.time()
+    _midstate["checked"] = now
+    prev = _midstate["value"]
+    if value == prev and _midstate["since"] is not None:
+        return
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        if prev is None:
+            # First reading since start: carry "since" over from the stored
+            # history if the state hasn't changed across the restart.
+            row = conn.execute("SELECT ts, value FROM midstate_events ORDER BY ts DESC LIMIT 1").fetchone()
+            if row and row[1] == value:
+                _midstate.update(value=value, since=row[0])
+                conn.close()
+                return
+            prev = row[1] if row else None
+        conn.execute("INSERT OR REPLACE INTO midstate_events (ts, value, prev) VALUES (?, ?, ?)",
+                     (now, value, prev))
+        conn.commit()
+        conn.close()
+    _midstate.update(value=value, since=now)
+    logger.info("SunVault midstate %s -> %s (%s)", prev, value, _midstate_kind(value))
+    if prev is None:
+        return  # first ever reading, nothing changed
+    kind = _midstate_kind(value)
+    if kind == "backup":
+        _send_ntfy("SunVault on backup power",
+                   f"The Hub+ disconnected from the grid (state {prev} -> {value}). "
+                   "The battery is powering the house.", priority="high", tags="zap")
+    elif kind == "on_grid":
+        _send_ntfy("SunVault back on grid", f"The Hub+ reconnected to the grid (state {prev} -> {value}).",
+                   tags="white_check_mark")
+    else:
+        _send_ntfy("SunVault state unknown",
+                   f"The Hub+ state changed {prev} -> {value} (unknown). Check the SunStrong app.",
+                   tags="grey_question")
+
+
+def _midstate_watch():
+    """Poll livedata midstate every MIDSTATE_POLL_SECS (a fast varserver read)."""
+    logger.info("SunVault state watch every %ds", MIDSTATE_POLL_SECS)
+    while True:
+        try:
+            sess, err = _get_session(PVS_IP, PVS_USER, PVS_PASS)
+            if sess:
+                r = sess.get(f"https://{PVS_IP}/vars?name=/sys/livedata/midstate&fmt=obj",
+                             verify=False, timeout=30)
+                if r.status_code in (401, 403):
+                    sessions.pop(PVS_IP, None)
+                elif r.status_code == 200:
+                    v = r.json().get("/sys/livedata/midstate")
+                    if v is not None:
+                        _midstate_record(int(float(v)))
+        except Exception as e:
+            logger.debug("midstate poll failed: %s", e)
+        time.sleep(MIDSTATE_POLL_SECS)
 
 
 def _background_refresh():
@@ -1842,6 +1927,31 @@ def outages():
     })
 
 
+@app.route("/sunvault", methods=["GET"])
+def sunvault_state():
+    """SunVault grid/backup state from the fast midstate watch, plus the
+    last few changes."""
+    if MOCK_PVS and _midstate["value"] is None:
+        v = MOCK_LIVEDATA_TEMPLATE.get("midstate") if MOCK_LIVEDATA_TEMPLATE else None
+        if v is not None:
+            _midstate.update(value=int(float(v)), since=time.time() - 3600, checked=time.time())
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        events = [{"ts": t, "value": v, "prev": p, "kind": _midstate_kind(v)} for t, v, p in conn.execute(
+            "SELECT ts, value, prev FROM midstate_events ORDER BY ts DESC LIMIT 20")]
+        conn.close()
+    except sqlite3.Error:
+        events = []
+    v = _midstate["value"]
+    return Response(json.dumps({
+        "midstate": v,
+        "kind": _midstate_kind(v),
+        "since": _midstate["since"],
+        "checked": _midstate["checked"],
+        "events": events,
+    }), mimetype="application/json")
+
+
 @app.route("/health")
 def health():
     data = cache.get()
@@ -1882,6 +1992,8 @@ if __name__ == "__main__":
     elif PVS_IP and PVS_PASS:
         t = threading.Thread(target=_background_refresh, daemon=True)
         t.start()
+        if MIDSTATE_POLL_SECS > 0:
+            threading.Thread(target=_midstate_watch, daemon=True).start()
     else:
         logger.warning("PVS_IP or PVS_PASS not set — background refresh disabled, data will be fetched on-demand")
 

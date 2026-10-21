@@ -35,6 +35,7 @@ services:
       - NTFY_FALLBACK_TOKEN=${NTFY_FALLBACK_TOKEN:-}
       - ALERT_STALE_MINS=${ALERT_STALE_MINS:-30}
       - ALERT_BATTERY_PCT=${ALERT_BATTERY_PCT:-20}
+      - MIDSTATE_POLL_SECS=${MIDSTATE_POLL_SECS:-60}
       - OUTAGE_GAP_MINS=${OUTAGE_GAP_MINS:-20}
       # Grid outage tracking: point UPS_LOG_DIR at the host dir holding
       # apcupsd.events (e.g. /var/log). Unset = mounts DATA_DIR, file absent,
