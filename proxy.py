@@ -1669,7 +1669,7 @@ def _ingest_ups_events():
     except OSError as e:
         logger.debug("UPS events read failed: %s", e)
         return
-    outages, open_start = [], None
+    outages, open_start, startups = [], None, []
     for line in lines:
         m = _UPS_LINE.match(line.strip())
         if not m:
@@ -1679,6 +1679,8 @@ def _ingest_ups_events():
         except ValueError:
             continue
         msg = m.group(2)
+        if "startup succeeded" in msg:
+            startups.append(ts)
         if msg.startswith("Power failure"):
             if open_start is None:
                 open_start = ts
@@ -1691,7 +1693,7 @@ def _ingest_ups_events():
             open_start = None
     if open_start is not None:
         outages.append((open_start, None))
-    if not outages:
+    if not outages and not startups:
         return
     with _db_lock:
         conn = sqlite3.connect(DB_PATH)
@@ -1699,6 +1701,13 @@ def _ingest_ups_events():
             "INSERT INTO grid_outages (start, end, source) VALUES (?, ?, 'ups') "
             "ON CONFLICT(start) DO UPDATE SET end = COALESCE(excluded.end, grid_outages.end)",
             outages)
+        # The host rebooting wipes the log, so the "Power failure" line for an
+        # outage stored earlier is gone and the loop above can't close it.
+        # The first daemon startup after it marks the end instead.
+        for ts in sorted(startups):
+            conn.execute(
+                "UPDATE grid_outages SET end = ? WHERE end IS NULL AND start < ?",
+                (ts, ts))
         conn.commit()
         conn.close()
 
