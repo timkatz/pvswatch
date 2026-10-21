@@ -89,3 +89,22 @@ test('chart legend lists outage kinds present in the window', async ({ page }) =
   const labels = await page.evaluate(() => powerChart.data.datasets.filter((d) => d._outageKind).map((d) => d.label));
   expect(labels).toContain('Power outage');
 });
+
+test('grid status badge: hidden normally, flags a SunVault outage while the grid is up', async ({ page }) => {
+  // Mock livedata has midstate 1 (grid-connected) → no badge.
+  await page.waitForFunction(() => typeof liveSnapshot !== 'undefined' && liveSnapshot);
+  await expect(page.locator('#gridStatus')).toBeHidden();
+  // SunVault says outage (midstate 2) while the house imports from the grid.
+  await page.evaluate(() => { liveSnapshot.midstate = 2; liveSnapshot.gridKw = 3.2; renderGridStatus(); });
+  await expect(page.locator('#gridStatus')).toBeVisible();
+  await expect(page.locator('#gridStatus')).toHaveClass(/mismatch/);
+  await expect(page.locator('#gridStatus')).toContainText('grid looks up');
+  // Real outage: no import, UPS on battery.
+  await page.evaluate(() => {
+    liveSnapshot.gridKw = 0;
+    lastOutages = [{ kind: 'grid', ongoing: true }];
+    renderGridStatus();
+  });
+  await expect(page.locator('#gridStatus')).toHaveClass(/outage/);
+  await expect(page.locator('#gridStatus')).toContainText('SunVault is in backup mode');
+});

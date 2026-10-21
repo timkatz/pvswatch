@@ -176,6 +176,10 @@ def _init_db():
         # pvs_uptime_s added 2026-10-19 — PVS dl_uptime (seconds since boot).
         # Lets /outages tell a PVS restart from a WiFi/network gap.
         ("pvs_uptime_s", "REAL"),
+        # midstate added 2026-10-21 — livedata midstate (Hub+/MIDC state).
+        # 2 = SunVault thinks the grid is down (the SunStrong app's outage
+        # banner); 0/1 seen while grid-connected.
+        ("midstate", "INTEGER"),
     ):
         try:
             c.execute(f"ALTER TABLE readings ADD COLUMN {col} {sql_type}")
@@ -262,6 +266,7 @@ def _record_reading(devices_json_str, livedata=None):
     if isinstance(resp_soc, (int, float)) and math.isfinite(resp_soc):
         battery_soc = float(resp_soc)
     backup_min = float(livedata.get("backupTimeRemaining", 0)) if livedata else 0
+    midstate = (data.get("battery") or {}).get("midstate")
     battery_lifetime_kwh = _cumulative(livedata.get("ess_en")) if livedata else None
     home_lifetime_kwh = _cumulative(livedata.get("site_load_en")) if livedata else None
     grid_lifetime_kwh = _cumulative(livedata.get("net_en")) if livedata else None
@@ -309,13 +314,13 @@ def _record_reading(devices_json_str, livedata=None):
                  sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
                  num_panels, panels_working, panels_error,
                  battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
-                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime_s)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime_s, midstate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, production, consumption, net, lifetime,
                  sys_v, l1_v, l2_v, freq, pf_p, pf_c,
                  num_panels, panels_working, panels_error,
                  battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
-                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime))
+                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime, midstate))
             # Per-panel data
             for inv in inverters:
                 serial = inv.get("SERIAL", "unknown")

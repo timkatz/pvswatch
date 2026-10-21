@@ -354,6 +354,19 @@
       grid-template-columns: 1.4fr 1fr 1fr;
       gap: 0.6rem;
     }
+    .grid-status {
+      display: none;
+      margin-bottom: 0.6rem;
+      padding: 0.6rem 0.8rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+      line-height: 1.4;
+    }
+    .grid-status.show { display: block; }
+    .grid-status.outage { border-color: var(--red); background: rgba(239, 68, 68, 0.12); }
+    .grid-status.mismatch { border-color: var(--accent); background: rgba(245, 158, 11, 0.12); }
+    .grid-status b { display: block; margin-bottom: 0.15rem; }
     .battery-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -823,6 +836,7 @@
     </div>
 
     <div class="section-head"><h2>SunVault Battery</h2></div>
+    <div class="grid-status" id="gridStatus" role="status"></div>
     <div class="battery-grid" id="batterySection">
       <div class="battery-card">
         <span class="label">State of Charge</span>
@@ -1082,6 +1096,7 @@ async function fetchData() {
       batteryKw:  data.battery?.p_kw        ?? null,
       batterySoc: data.battery?.soc         ?? null,
       backupMin:  data.battery?.backup_min  ?? null,
+      midstate:   data.battery?.midstate    ?? null,
       gridKw:     data.grid?.p_kw           ?? null,
       units:      data.battery?.units       ?? null,
       ts: Date.now() / 1000,
@@ -1430,6 +1445,39 @@ function renderBattery() {
   // combined-only and per-unit drilldown is noise for daily use. The data
   // is still fetched and exposed on /devices for anyone who wants it.
   document.getElementById('batteryUnits').innerHTML = '';
+  renderGridStatus();
+}
+
+// ── SunVault outage flag vs our own grid evidence ──────────────────────
+// livedata midstate 2 = the SunVault Hub+ thinks the grid is down (this is
+// what drives the SunStrong app's "power outage" banner). We cross-check it
+// against the UPS log (/outages) and the grid meter: if power is still being
+// imported, or the UPS is on mains, the grid is up and the flag is wrong.
+let gridTracking = false;
+function renderGridStatus() {
+  const el = document.getElementById('gridStatus');
+  if (!el || !liveSnapshot) return;
+  const s = liveSnapshot;
+  const sunvaultOutage = s.midstate === 2;
+  const upsOutage = lastOutages.some(o => o.kind === 'grid' && o.ongoing);
+  const importing = s.gridKw != null && s.gridKw > 0.05;
+  const gridUp = importing || (gridTracking && !upsOutage);
+  let cls = '', html = '';
+  if (sunvaultOutage && gridUp) {
+    cls = 'mismatch';
+    const why = [];
+    if (importing) why.push('the house is drawing ' + s.gridKw.toFixed(1) + ' kW from the grid');
+    if (gridTracking && !upsOutage) why.push('the UPS is on mains power');
+    html = '<b>⚠ SunVault reports a power outage, but the grid looks up</b>'
+      + 'The SunStrong app will show an outage too. Here, ' + why.join(' and ') + '.';
+  } else if (sunvaultOutage || upsOutage) {
+    cls = 'outage';
+    html = '<b>⚡ Power outage</b>'
+      + (sunvaultOutage ? 'SunVault is in backup mode and powering the house.'
+                        : 'The UPS lost mains power. SunVault has not reported an outage yet.');
+  }
+  el.className = 'grid-status' + (cls ? ' show ' + cls : '');
+  el.innerHTML = html;
 }
 
 // ── Chart-tab + chart-mode handlers ─────────────────────────────────
@@ -1646,6 +1694,8 @@ function fmtOutageDur(s) {
 
 function applyOutages(o) {
   lastOutages = o.outages || [];
+  gridTracking = !!o.grid_tracking;
+  renderGridStatus();
   if (o.gap_threshold_min) outageGapSecs = o.gap_threshold_min * 60;
   const sum = o.summary || {};
   const scope = document.getElementById('outageScope');
