@@ -25,6 +25,7 @@ Configuration is read from environment variables (set via .env file):
   NTFY_EMAIL     - Also have ntfy forward alerts to this email (optional)
   NTFY_FALLBACK_URL / NTFY_FALLBACK_TOKEN - Second ntfy server, used if the primary fails (optional)
   ALERT_STALE_MINS - Minutes without fresh data before alerting (default: 30)
+  ALERT_BATTERY_PCT - Alert when usable battery charge drops below this % (default: 20, 0 = off)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
@@ -77,6 +78,9 @@ NTFY_EMAIL = os.environ.get("NTFY_EMAIL", "").strip()  # ntfy also forwards to t
 NTFY_FALLBACK_URL = os.environ.get("NTFY_FALLBACK_URL", "").strip()
 NTFY_FALLBACK_TOKEN = os.environ.get("NTFY_FALLBACK_TOKEN", "").strip()
 ALERT_STALE_MINS = int(os.environ.get("ALERT_STALE_MINS", "30"))
+# Low-battery alert: usable charge below this % (0 disables). Recovery fires
+# 5 points above it so a reading hovering at the line doesn't flap.
+ALERT_BATTERY_PCT = float(os.environ.get("ALERT_BATTERY_PCT", "20"))
 COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
 CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
 
@@ -922,6 +926,39 @@ def _check_stale_alert():
                    tags="white_check_mark")
 
 
+def _battery_alert_file():
+    return os.path.join(os.path.dirname(DB_PATH) or ".", "battery_alert_state")
+
+
+def _check_battery_alert():
+    """Alert once when usable battery charge drops below ALERT_BATTERY_PCT,
+    and once when it climbs back above it + 5. The "alerted" flag is kept in
+    a file next to the DB so a deploy or reboot doesn't re-send it."""
+    if not NTFY_URL or ALERT_BATTERY_PCT <= 0:
+        return
+    try:
+        soc = json.loads(cache.get() or "{}").get("battery", {}).get("soc")
+    except (TypeError, json.JSONDecodeError, AttributeError):
+        return
+    if soc is None or not math.isfinite(soc):
+        return
+    pct = soc * 100
+    flag = _battery_alert_file()
+    alerted = os.path.exists(flag)
+    if not alerted and pct < ALERT_BATTERY_PCT:
+        logger.warning("Battery at %.0f%% — sending low-battery alert", pct)
+        if _send_ntfy("Battery low",
+                      f"SunVault usable charge is {pct:.0f}% (alert below {ALERT_BATTERY_PCT:.0f}%). "
+                      "It should stay above the backup reserve. Check the SunStrong app.",
+                      priority="high", tags="battery"):
+            open(flag, "w").write(f"{time.time()}\n")
+    elif alerted and pct >= ALERT_BATTERY_PCT + 5:
+        logger.info("Battery back to %.0f%% — sending recovery", pct)
+        if _send_ntfy("Battery recovered", f"SunVault usable charge is back to {pct:.0f}%.",
+                      tags="white_check_mark"):
+            os.remove(flag)
+
+
 def _recovery_cause(down_secs):
     """One-line cause for the recovery alert, from the PVS's current uptime."""
     try:
@@ -941,6 +978,8 @@ def _background_refresh():
     logger.info("Starting background refresh (every %ds)", REFRESH_SECS)
     if NTFY_URL:
         logger.info("Stale-data alerts enabled (after %d min)", ALERT_STALE_MINS)
+        if ALERT_BATTERY_PCT > 0:
+            logger.info("Low-battery alerts enabled (below %.0f%%)", ALERT_BATTERY_PCT)
     if UPS_EVENTS_FILE:
         logger.info("Grid outage tracking from %s", UPS_EVENTS_FILE)
     # Initial fetch
@@ -950,6 +989,7 @@ def _background_refresh():
         time.sleep(REFRESH_SECS)
         _refresh_data()
         _check_stale_alert()
+        _check_battery_alert()
         _ingest_ups_events()
 
 
