@@ -717,7 +717,11 @@ def _inject_battery_units(data, vars_data):
             "model": u.get("prodMdlNm"),
             "serial": u.get("sn"),
             "p_kw": f("p3phsumKw", 0),
-            "soc": f("socVal", 0),
+            # customerSocVal is the usable charge the SunStrong app shows
+            # (0% = at the hidden reserve). socVal is the raw cell charge,
+            # ~15 points higher. Older firmware may lack the customer value.
+            "soc": f("customerSocVal", f("socVal", 0)),
+            "raw_soc": f("socVal"),
             "soh": f("sohVal"),
             "op_mode": u.get("opMode"),
             "v_batt": f("vBattV"),
@@ -733,10 +737,13 @@ def _inject_battery_units(data, vars_data):
         data["battery"]["units"] = units
         # The PVS's aggregate livedata soc can sit at 0 (or NaN) for hours
         # after the battery re-registers, while each unit already reports a
-        # real socVal. Fall back to the unit average so the card isn't 0%.
+        # real value. Fall back to the unit average in that case. A real 0
+        # (all units at 0) is left alone.
         agg = data["battery"].get("soc")
-        unit_socs = [u["soc"] for u in units if u["soc"] and math.isfinite(u["soc"])]
-        if unit_socs and not (agg and math.isfinite(agg)):
+        unit_socs = [u["soc"] for u in units
+                     if u["soc"] is not None and math.isfinite(u["soc"])]
+        agg_ok = agg is not None and math.isfinite(agg)
+        if unit_socs and (not agg_ok or (agg == 0 and max(unit_socs) > 0)):
             data["battery"]["soc"] = sum(unit_socs) / len(unit_socs)
 
 
