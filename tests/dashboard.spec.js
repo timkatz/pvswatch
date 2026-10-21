@@ -108,3 +108,23 @@ test('grid status badge: hidden normally, flags a SunVault outage while the grid
   await expect(page.locator('#gridStatus')).toHaveClass(/outage/);
   await expect(page.locator('#gridStatus')).toContainText('SunVault is in backup mode');
 });
+
+test('hovering an outage band shows its window', async ({ page }) => {
+  await page.waitForFunction(() => typeof powerChart !== 'undefined' && powerChart
+    && powerChart.data.datasets.some((d) => d._outageKind));
+  const pt = await page.evaluate(() => ({ a: powerChart.chartArea, n: powerChart.data.labels.length }));
+  expect(pt.n).toBeGreaterThan(1);
+  // Sweep across the chart until the tip appears.
+  const box = await page.locator('#powerChart').boundingBox();
+  let shown = false;
+  for (let px = pt.a.left; px <= pt.a.right && !shown; px += 2) {
+    await page.mouse.move(box.x + px, box.y + (pt.a.top + pt.a.bottom) / 2);
+    shown = (await page.locator('.outage-tip').isVisible().catch(() => false))
+      && (await page.locator('.outage-tip').innerText()).includes('Power outage');
+  }
+  expect(shown).toBe(true);
+  await expect(page.locator('.outage-tip')).toContainText('Power outage');
+  await expect(page.locator('.outage-tip')).toContainText('4m');
+  await page.mouse.move(0, 0);
+  await expect(page.locator('.outage-tip')).toBeHidden();
+});

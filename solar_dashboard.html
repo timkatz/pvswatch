@@ -667,6 +667,24 @@
       position: relative;
       height: 240px;
     }
+    .outage-tip {
+      display: none;
+      position: absolute;
+      z-index: 5;
+      pointer-events: none;
+      min-width: 170px;
+      padding: 0.5rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+    .outage-tip .ot-row { display: flex; gap: 0.45rem; align-items: flex-start; }
+    .outage-tip .ot-row + .ot-row { margin-top: 0.4rem; }
+    .outage-tip .og-dot { margin-top: 0.3rem; flex: none; }
+    .outage-tip .ot-sub { display: block; color: var(--text-dim); }
     .chart-empty {
       text-align: center;
       color: var(--text-dim);
@@ -1692,6 +1710,15 @@ function fmtOutageDur(s) {
   return (h / 24).toFixed(1) + 'd';
 }
 
+// PVS cause comes from its uptime: restarted during the gap (power loss /
+// reboot) vs. stayed up (WiFi/network). Older history has no uptime.
+function outageLabel(e) {
+  return e.kind === 'grid' ? 'Power outage'
+    : e.cause === 'pvs_restart' ? 'PVS restarted'
+    : e.cause === 'network' ? 'PVS offline · WiFi/network'
+    : 'PVS offline';
+}
+
 function applyOutages(o) {
   lastOutages = o.outages || [];
   gridTracking = !!o.grid_tracking;
@@ -1718,12 +1745,7 @@ function applyOutages(o) {
   const MAX = 12;
   const rows = lastOutages.slice(0, MAX).map(e => {
     const when = new Date(e.start * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    // PVS cause comes from its uptime: restarted during the gap (power loss
-    // / reboot) vs. stayed up (WiFi/network). Older history has no uptime.
-    const what = e.kind === 'grid' ? 'Power outage'
-      : e.cause === 'pvs_restart' ? 'PVS restarted'
-      : e.cause === 'network' ? 'PVS offline · WiFi/network'
-      : 'PVS offline';
+    const what = outageLabel(e);
     const live = e.ongoing ? ' <span class="og-live">NOW</span>' : '';
     return `<li data-kind="${e.kind}"><span class="og-dot ${e.kind}"></span><span>${what}${live}</span>` +
            `<span class="og-when">${when}</span><span class="og-dur">${fmtOutageDur(e.duration_s)}</span></li>`;
@@ -1758,6 +1780,7 @@ function outageLegendDatasets(buckets, step) {
 // category axis of bucket timestamps (gaps aren't padded), so map epoch →
 // pixel by interpolating between neighbouring buckets.
 function outageBandsPlugin(buckets) {
+  let drawn = [];  // bands drawn last frame, for hover hit-testing
   return {
     id: 'outageBands',
     beforeDatasetsDraw(chart) {
@@ -1779,6 +1802,7 @@ function outageBandsPlugin(buckets) {
         if (d._outageKind && !chart.isDatasetVisible(i)) hiddenKinds.add(d._outageKind);
       });
       ctx.save();
+      drawn = [];
       for (const o of lastOutages) {
         if (hiddenKinds.has(o.kind)) continue;
         const end = o.end ?? Date.now() / 1000;
@@ -1788,10 +1812,54 @@ function outageBandsPlugin(buckets) {
         x0 = Math.max(x0, a.left); x1 = Math.min(x1, a.right);
         ctx.fillStyle = o.kind === 'grid' ? 'rgba(239,68,68,0.22)' : 'rgba(148,163,184,0.16)';
         ctx.fillRect(x0, a.top, x1 - x0, a.bottom - a.top);
+        drawn.push({ x0, x1, o });
       }
       ctx.restore();
     },
+    // Hover (or tap) a band to see what it was and when.
+    afterEvent(chart, args) {
+      const e = args.event, a = chart.chartArea;
+      const inArea = e.x >= a.left && e.x <= a.right && e.y >= a.top && e.y <= a.bottom;
+      const hits = e.type === 'mouseout' || !inArea ? []
+        : drawn.filter(d => e.x >= d.x0 - 3 && e.x <= d.x1 + 3);
+      showOutageTip(chart, hits, e.x, e.y);
+    },
   };
+}
+
+function showOutageTip(chart, hits, x, y) {
+  const box = chart.canvas.parentNode;
+  let tip = box.querySelector('.outage-tip');
+  if (!hits.length) { if (tip) tip.style.display = 'none'; return; }
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'outage-tip';
+    box.appendChild(tip);
+  }
+  // Add the date when the chart spans more than a day.
+  // Add the date on long charts, or when any outage shown spans midnight.
+  const day = t => new Date(t * 1000).toDateString();
+  const multiDay = ['7d', '30d', '90d', '1y', 'all'].includes(currentRange)
+    || hits.some(({ o }) => day(o.start) !== day(o.end ?? Date.now() / 1000));
+  const opt = multiDay ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+                       : { hour: 'numeric', minute: '2-digit' };
+  const fmt = t => new Date(t * 1000).toLocaleString([], opt);
+  // Grid first, then PVS, matching the legend order.
+  tip.innerHTML = hits.slice().sort((a, b) => (a.o.kind === 'grid' ? -1 : 1) - (b.o.kind === 'grid' ? -1 : 1))
+    .map(({ o }) => {
+      const end = o.ongoing ? 'now' : fmt(o.end);
+      const extra = o.kind === 'pvs' && o.cause === 'pvs_restart' && o.restart_at
+        ? `<span class="ot-sub">Rebooted at ${fmt(o.restart_at)}</span>` : '';
+      return `<div class="ot-row"><span class="og-dot ${o.kind}"></span><div>` +
+        `<b>${outageLabel(o)}${o.ongoing ? ' (ongoing)' : ''}</b>` +
+        `<span class="ot-sub">${fmt(o.start)} – ${end} · ${fmtOutageDur(o.duration_s)}</span>${extra}</div></div>`;
+    }).join('');
+  tip.style.display = 'block';
+  // Keep the tip inside the chart box.
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let left = x + 12; if (left + w > box.clientWidth) left = x - w - 12;
+  tip.style.left = Math.max(0, left) + 'px';
+  tip.style.top = Math.max(0, Math.min(y - h / 2, box.clientHeight - h)) + 'px';
 }
 
 // ── Chart render ─────────────────────────────────────────────────────
