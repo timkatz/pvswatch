@@ -211,3 +211,13 @@ test('monthly solar backfill gives older bills a no-solar estimate', async ({ re
   expect(b.no_solar.solar_kwh).toBeGreaterThan(800);
   expect(b.no_solar.solar_kwh).toBeLessThan(1000);
 });
+
+test('time-of-use strip and schedule render from the plan', async ({ page, request }) => {
+  const tou = await (await request.get('/tou')).json();
+  expect(tou.enabled).toBe(true);
+  expect(tou.today.reduce((n, s) => n + (s.end - s.start), 0)).toBe(24);
+  await expect(page.locator('#touNow')).toBeVisible();
+  await expect(page.locator('#touNow')).toContainText(tou.now.name);
+  await expect(page.locator('#touToday .tou-seg')).toHaveCount(tou.today.length);
+  await expect(page.locator('#touTips li').first()).toContainText('Cheapest');
+});

@@ -771,6 +771,34 @@
       .fin-toggle { margin-left: 0; }
       .fin-headline .big { font-size: 1.15rem; }
     }
+
+    /* ── Time of use ──────────────────────────── */
+    .tou-now { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; margin: 0.75rem 0 0; padding: 0.55rem 0.85rem;
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.8rem; color: var(--text-dim); }
+    .tou-now b { color: var(--text); }
+    .tou-now .tou-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .tou-now .good { color: var(--green); font-weight: 600; }
+    .tou-now .bad { color: var(--red); font-weight: 600; }
+    .tou-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+    .tou-day { display: grid; grid-template-columns: 5.5rem 1fr; gap: 0.6rem; align-items: center; margin-bottom: 0.45rem; }
+    .tou-day-label { font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .tou-bar { position: relative; display: flex; height: 30px; border-radius: 6px; overflow: hidden; }
+    .tou-seg { display: flex; align-items: center; justify-content: center; font-size: 0.66rem; font-weight: 700; color: #0c1117;
+      white-space: nowrap; overflow: hidden; border-right: 1px solid var(--bg-card); }
+    .tou-seg:last-child { border-right: none; }
+    .tou-seg.cheap { background: var(--green); }
+    .tou-seg.mid { background: #eab308; }
+    .tou-seg.peak { background: var(--red); color: #fff; }
+    .tou-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); box-shadow: 0 0 0 1px var(--bg); }
+    .tou-axis { display: flex; justify-content: space-between; margin-left: 6.1rem; font-size: 0.62rem; color: var(--text-dim); }
+    .tou-tips { list-style: none; margin-top: 0.8rem; font-size: 0.8rem; line-height: 1.45; display: grid; gap: 0.35rem; }
+    .tou-tips b { color: var(--text); }
+    .tou-tips li { color: var(--text-dim); }
+    @media (max-width: 480px) {
+      .tou-day { grid-template-columns: 1fr; gap: 0.25rem; }
+      .tou-axis { margin-left: 0; }
+      .tou-seg { font-size: 0.58rem; }
+    }
   </style>
 </head>
 <body>
@@ -816,6 +844,8 @@
       <span>energy independence</span>
       <span class="scope" id="indScope">—</span>
     </div>
+
+    <div class="tou-now" id="touNow" hidden></div>
 
     <section class="hero" id="heroMetrics">
       <div class="metric">
@@ -1006,6 +1036,19 @@
       <span class="fin-msg" id="finMsg"></span>
     </div>
     <div class="fin-help" id="finHelp"></div>
+
+    <div class="section-head">
+      <h2>Rates &amp; Time of Use</h2>
+      <span id="touScope" style="font-size:0.75rem;color:var(--text-dim)"></span>
+    </div>
+    <div class="tou-card" id="touCard">
+      <div class="tou-day"><div class="tou-day-label" id="touTodayLabel">Today</div><div class="tou-bar" id="touToday"></div></div>
+      <div class="tou-day" id="touOtherWrap"><div class="tou-day-label" id="touOtherLabel"></div><div class="tou-bar" id="touOther"></div></div>
+      <div class="tou-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
+      <ul class="tou-tips" id="touTips"></ul>
+    </div>
+    <div class="fin-table-wrap"><table class="fin-table" id="rateTable"></table></div>
+    <div class="fin-help" id="rateHelp"></div>
 
     <div class="section-head">
       <h2>Outages</h2>
@@ -2654,6 +2697,112 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.getElementById('finModal').classList.contains('open')) closeFinModal();
 });
 
+// ── Time of use + rate history ───────────────────────────────────────
+// Rates are delivery + generation $/kWh, the same numbers printed on bills.
+let touData = null;
+const cents = r => (r * 100).toFixed(r < 0.1 ? 1 : 0) + '¢';
+
+function touHour(h) {
+  const hh = h % 24;
+  return (hh % 12 || 12) + (hh < 12 ? ' AM' : ' PM');
+}
+
+// "8 AM–4 PM" / "12 AM–8 AM, 9 PM–12 AM" for every segment with this name.
+function touHours(segs, name) {
+  return segs.filter(s => s.name === name).map(s => touHour(s.start) + '–' + touHour(s.end)).join(', ');
+}
+
+function touClass(segs, rate) {
+  const rs = [...new Set(segs.map(s => s.rate))].sort((a, b) => a - b);
+  return rate === rs[0] ? 'cheap' : rate === rs[rs.length - 1] ? 'peak' : 'mid';
+}
+
+function renderTouBar(el, segs, markNow) {
+  el.innerHTML = segs.map(s => {
+    const w = (s.end - s.start) / 24 * 100;
+    const label = w >= 20 ? `${esc(s.name)} ${cents(s.rate)}` : w >= 9 ? cents(s.rate) : '';
+    return `<div class="tou-seg ${touClass(segs, s.rate)}" style="width:${w}%" title="${esc(s.name)} · ${touHour(s.start)}–${touHour(s.end)} · ${cents(s.rate)}/kWh">${label}</div>`;
+  }).join('');
+  if (markNow) {
+    const n = new Date();
+    const pct = (n.getHours() + n.getMinutes() / 60) / 24 * 100;
+    el.insertAdjacentHTML('beforeend', `<div class="tou-mark" style="left:calc(${pct}% - 1px)" title="Now"></div>`);
+  }
+}
+
+function renderTouNow(d) {
+  const el = document.getElementById('touNow');
+  if (!d || !d.enabled) { el.hidden = true; return; }
+  const n = d.now;
+  const color = { cheap: 'var(--green)', mid: '#eab308', peak: 'var(--red)' }[touClass(d.today, n.rate)];
+  let html = `<span class="tou-dot" style="background:${color}"></span><span><b>${esc(n.name)}</b> now · ${cents(n.rate)}/kWh</span>`;
+  if (n.next && n.until) {
+    const mins = Math.max(0, Math.round((n.until * 1000 - Date.now()) / 60000));
+    const inTxt = mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' : mins + 'm';
+    html += `<span>· ${esc(n.next.name)} (${cents(n.next.rate)}) at ${touHour(new Date(n.until * 1000).getHours())}, in ${inTxt}</span>`;
+  }
+  if (n.cheapest) html += '<span class="good">· good time for heavy loads</span>';
+  else if (n.priciest) html += '<span class="bad">· peak — hold off on heavy loads</span>';
+  el.innerHTML = html;
+  el.hidden = false;
+}
+
+function renderTou(d) {
+  touData = d;
+  renderTouNow(d);
+  const card = document.getElementById('touCard');
+  card.style.display = d.enabled ? '' : 'none';
+  if (d.enabled) {
+    document.getElementById('touScope').textContent = `${d.season} schedule · ${d.today_label}`;
+    document.getElementById('touTodayLabel').textContent = 'Today';
+    renderTouBar(document.getElementById('touToday'), d.today, true);
+    const ow = document.getElementById('touOtherWrap');
+    ow.style.display = d.other ? '' : 'none';
+    if (d.other) {
+      document.getElementById('touOtherLabel').textContent = d.other_label;
+      renderTouBar(document.getElementById('touOther'), d.other, false);
+    }
+    const byRate = [...new Map(d.today.map(s => [s.name, s])).values()].sort((a, b) => a.rate - b.rate);
+    const cheap = byRate[0], peak = byRate[byRate.length - 1];
+    const tips = [
+      `💡 <b>Cheapest: ${touHours(d.today, cheap.name)}</b> (${cents(cheap.rate)}). Run laundry, the dishwasher, the pool pump and EV charging then` +
+        (cheap.start < 16 && cheap.end > 8 ? ', while your panels are producing.' : '.'),
+      `⚠️ <b>Most expensive: ${touHours(d.today, peak.name)}</b> (${cents(peak.rate)}). The battery covers this window, so avoid starting big loads.`,
+    ];
+    if (d.season === 'summer') tips.push('❄️ Pre-cool the house before 4 PM so the AC works less during the peak.');
+    if (d.other) {
+      const op = [...d.other].sort((a, b) => b.rate - a.rate)[0];
+      tips.push(`📅 On ${d.other_label}, ${touHours(d.other, op.name)} is ${op.name.toLowerCase()} (${cents(op.rate)}) instead.`);
+    }
+    document.getElementById('touTips').innerHTML = tips.map(t => `<li>${t}</li>`).join('');
+  }
+  renderRateTable(d.history || {});
+}
+
+function renderRateTable(h) {
+  const t = document.getElementById('rateTable');
+  const help = document.getElementById('rateHelp');
+  const rows = h.rows || [];
+  if (!rows.length) { t.innerHTML = ''; help.textContent = ''; return; }
+  const years = h.years || [];
+  t.innerHTML = '<thead><tr><th>Rate ($/kWh)</th>' + years.map(y => `<th>${y}</th>`).join('') + '<th>Now (plan)</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + esc(r.label) + '</td>' +
+      years.map(y => `<td>${r.by_year[y] == null ? '<span class="dim">—</span>' : '$' + r.by_year[y].toFixed(3)}</td>`).join('') +
+      `<td><b>${r.now == null ? '—' : '$' + r.now.toFixed(3)}</b></td></tr>`).join('') + '</tbody>';
+  const ch = (h.changes || []).slice(-6).reverse();
+  help.innerHTML = 'Delivery + generation, from your bills' + (touData && touData.adder ? ` (about ${cents(touData.adder)}/kWh of other charges come on top).` : '.') +
+    (ch.length ? ' Recent changes: ' + ch.map(c => `${esc(finShortDate(c.date))} ${esc(c.label.toLowerCase())} $${c.from.toFixed(3)} → $${c.to.toFixed(3)}`).join('; ') + '.' : '');
+}
+
+async function fetchTou() {
+  try {
+    const res = await fetch('/tou');
+    if (res.ok) renderTou(await res.json());
+  } catch (e) {
+    console.error('TOU fetch error:', e);
+  }
+}
+
 // ── Bootstrap ────────────────────────────────────────────────────────
 if (!stopFetch) {
   refreshAvailableRanges();
@@ -2663,6 +2812,8 @@ if (!stopFetch) {
   setInterval(refreshAvailableRanges, 30 * 60 * 1000); // recheck every 30 min
   fetchFinance();
   setInterval(fetchFinance, 30 * 60 * 1000);  // bills change rarely
+  fetchTou();
+  setInterval(fetchTou, 5 * 60 * 1000);
 }
 </script>
 </body>

@@ -47,6 +47,7 @@ curl -u "ssm_owner:LAST5" http://<PVS_IP>/cgi-bin/dl_cgi/devices/list
 - **Per-panel inverter status** — click a panel for a drill-down chart of its production over day/week/month
 - **Savings card** — dollars saved, lbs CO₂ avoided, trees-equivalent, miles-not-driven, gallons-not-used (configurable rate / emissions factor)
 - **Net Cost & Savings card** — your utility bills plus a fixed monthly solar payment, next to an estimate of what the house would have cost with no solar. Answers "is solar actually saving me money?" at a glance, with month / quarter / year / NEM-year views, change vs. the previous period and vs. last year, and dated notes on the chart. Bills come from uploaded PDFs (SCE layout parsed automatically), manual entry, or a [UtilityAPI](https://utilityapi.com) sync
+- **Rates & Time of Use** — a "now" strip (current period, price, when the next one starts, whether it's a good time for heavy loads), a 24-hour price bar, tips, and your rates by year from your bills
 - **Nighttime detection** — when DC powerline comms drop after dark, panels report `STATE=error` even though nothing is wrong; the dashboard recognizes this pattern and shows "🌙 Nighttime idle" instead of a red banner
 - **Optional Tailscale sidecar** — secure HTTPS access from anywhere on your tailnet without opening a router port
 
@@ -190,6 +191,7 @@ The Flask app exposes these JSON endpoints — useful for Home Assistant, Grafan
 | `GET /panel/<serial>/history?range=24h` | Per-panel drilldown: bucketed kWh, latest snapshot, total — used by the dashboard panel modal |
 | `GET /outages?range=24h` | PVS-offline (history gaps) and grid power (UPS) outages in the window, newest first, plus per-kind count/total. PVS events carry a `cause` from the PVS uptime: `pvs_restart` (rebooted / lost power) or `network` (stayed up, so WiFi/network); `null` for history recorded before uptime tracking |
 | `GET /finance?group=month` | Net cost report: bills grouped by `month`, `quarter`, `year` or `nemyear`, each with utility cost, solar payment, no-solar estimate, savings and change vs. the previous period / last year, plus a 12-bill headline and dated notes. `spread=0` shows NEM settle-ups as billed instead of spread over their NEM year |
+| `GET /tou` | Time-of-use schedule for today (and the other day type when it differs), the current period and next change, and rate history by year from bills, with the dates rates changed |
 | `GET /bills`, `POST /bills`, `DELETE /bills/<date>` | List / add / delete utility bills. POST takes bill PDFs (multipart `file=`) or JSON |
 | `POST /usage` | Import a Green Button usage download (XML or CSV) |
 | `GET /solar-months`, `POST /solar-months` | Monthly solar (and home) kWh from another source, e.g. your solar company's app, for months before pvswatch was recording. Lets older bills get a no-solar estimate |

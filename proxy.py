@@ -222,10 +222,12 @@ def _init_db():
         updated REAL
     )""")
     # rate_scale added 2026-10-22: that bill's energy rates / today's TOU_RATES.
-    try:
-        c.execute("ALTER TABLE bills ADD COLUMN rate_scale REAL")
-    except sqlite3.OperationalError:
-        pass
+    # rates added 2026-10-22: JSON {"summer:on": $/kWh, ...} from the bill.
+    for col, typ in (("rate_scale", "REAL"), ("rates", "TEXT")):
+        try:
+            c.execute(f"ALTER TABLE bills ADD COLUMN {col} {typ}")
+        except sqlite3.OperationalError:
+            pass
     # Dated notes shown on the Net Cost chart (e.g. a billing plan change).
     c.execute("""CREATE TABLE IF NOT EXISTS annotations (
         date TEXT,
@@ -1556,7 +1558,7 @@ def _background_refresh_mock():
 # no solar, so "is solar saving me money?" has a number behind it.
 BILL_COLS = ("bill_date", "period_start", "period_end", "amount", "settlement",
              "nem_month", "net_kwh", "import_kwh", "export_kwh",
-             "peak_import_kwh", "base_charge", "source", "file", "notes", "rate_scale")
+             "peak_import_kwh", "base_charge", "source", "file", "notes", "rate_scale", "rates")
 _DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
 
 
@@ -1636,7 +1638,7 @@ def _clean_bill(b):
             if not _DATE_RE.match(str(v)):
                 return None, f"{k} must be YYYY-MM-DD"
             out[k] = v
-        elif k in ("source", "file", "notes"):
+        elif k in ("source", "file", "notes", "rates"):
             out[k] = str(v)[:500]
         else:
             try:
@@ -2012,6 +2014,105 @@ def _shift_year(key, group):
     return str(int(key[:4]) - 1) + key[4:]
 
 
+# ── Time-of-use schedule + rate history (/tou) ───────────────────────
+RATE_LABELS = {"summer:on": "Summer on peak", "summer:mid": "Summer mid peak", "summer:off": "Summer off peak",
+               "winter:mid": "Winter mid peak", "winter:off": "Winter off peak", "winter:super": "Winter super off peak"}
+
+
+def _tou_segments(day):
+    """[{start, end (hours), name, rate}] for one local date under the plan.
+    Rates are delivery + generation, without the plan's per-kWh adder, so
+    they compare with the rates printed on bills."""
+    tz = TOU_PLAN["_tz"]
+    segs = []
+    for h in range(24):
+        ts = datetime(day.year, day.month, day.day, h, 30, tzinfo=tz).timestamp()
+        name, rate = _tou_period(ts)
+        rate = round(rate - TOU_PLAN["adder"], 4)
+        if segs and segs[-1]["name"] == name:
+            segs[-1]["end"] = h + 1
+        else:
+            segs.append({"start": h, "end": h + 1, "name": name, "rate": rate})
+    return segs
+
+
+def _rate_history():
+    """Per-year average of each TOU rate from bills, the plan's rates now,
+    and the dates a rate changed between consecutive bills."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT period_start, rates FROM bills WHERE rates IS NOT NULL "
+                        "ORDER BY period_start").fetchall()
+    conn.close()
+    years, last, changes = {}, {}, []
+    for start, raw in rows:
+        try:
+            rates = json.loads(raw)
+        except ValueError:
+            continue
+        for k, v in rates.items():
+            years.setdefault(start[:4], {}).setdefault(k, []).append(v)
+            if k in last and abs(v - last[k]) >= 0.0005:
+                changes.append({"date": start, "key": k, "label": RATE_LABELS.get(k, k),
+                                "from": last[k], "to": v})
+            last[k] = v
+    now = {}
+    if TOU_PLAN:
+        names = {"on peak": "on", "mid peak": "mid", "off peak": "off", "super off peak": "super"}
+        for se in TOU_PLAN["seasons"]:
+            season = "summer" if 7 in se["months"] else "winter"
+            for p in se["periods"]:
+                key = names.get(p.get("name", "").lower())
+                if key:
+                    now[f"{season}:{key}"] = p["rate"]
+    keys = [k for k in RATE_LABELS if k in now or any(k in y for y in years.values())]
+    return {
+        "years": sorted(years),
+        "rows": [{"key": k, "label": RATE_LABELS[k], "now": now.get(k),
+                  "by_year": {y: round(sum(v[k]) / len(v[k]), 4) for y, v in years.items() if k in v}}
+                 for k in keys],
+        "changes": changes,
+    }
+
+
+@app.route("/tou", methods=["GET"])
+def tou():
+    if not TOU_PLAN:
+        return jsonify({"enabled": False, "history": _rate_history()})
+    tz = TOU_PLAN["_tz"]
+    now = datetime.now(tz)
+    today = _tou_segments(now.date())
+    # The other kind of day (weekday vs weekend) when its schedule differs.
+    other_day = now.date() + timedelta(days=1)
+    while (other_day.weekday() >= 5) == (now.weekday() >= 5):
+        other_day += timedelta(days=1)
+    other = _tou_segments(other_day)
+    cur = next(sg for sg in today if sg["start"] <= now.hour < sg["end"])
+    # Next change, looking into tomorrow if today has none left.
+    nxt, until = None, None
+    for day_off in range(0, 2):
+        segs = today if day_off == 0 else _tou_segments(now.date() + timedelta(days=1))
+        for sg in segs:
+            start = datetime(now.year, now.month, now.day, tzinfo=tz) + timedelta(days=day_off, hours=sg["start"])
+            if start > now and sg["name"] != cur["name"]:
+                nxt, until = sg, start.timestamp()
+                break
+        if nxt:
+            break
+    rates = sorted({(sg["rate"], sg["name"]) for sg in today})
+    return jsonify({
+        "enabled": True,
+        "season": "summer" if now.month in next(se["months"] for se in TOU_PLAN["seasons"] if 7 in se["months"]) else "winter",
+        "adder": TOU_PLAN["adder"],
+        "now": {**cur, "until": until, "next": nxt,
+                "cheapest": cur["rate"] == rates[0][0], "priciest": cur["rate"] == rates[-1][0]},
+        "today": today,
+        "today_label": "weekends" if now.weekday() >= 5 else "weekdays",
+        "other": other if [(s_["start"], s_["name"]) for s_ in other] != [(s_["start"], s_["name"]) for s_ in today] else None,
+        "other_label": "weekends" if other_day.weekday() >= 5 else "weekdays",
+        "history": _rate_history(),
+    })
+
+
 @app.route("/finance", methods=["GET"])
 def finance():
     group = request.args.get("group", "month")
@@ -2334,6 +2435,9 @@ def _uapi_bill(b):
     gen = {k: i["rate"] for sup in (b.get("suppliers") or []) for i in sup.get("supplier_line_items", [])
            if i.get("rate") and (k := _tou_key(i.get("name")))}
     row["rate_scale"] = _rate_scale(deliv, gen)
+    both = {f"{k[0]}:{k[1]}": round(deliv[k] + gen[k], 5) for k in deliv if k in gen}
+    if both:
+        row["rates"] = json.dumps(both)
     return {k: v for k, v in row.items() if v is not None}
 
 

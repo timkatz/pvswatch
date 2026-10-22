@@ -22,6 +22,8 @@ services:
       - LOG_LEVEL=INFO
       # Fixed solar payment so the Net Cost card has something to add.
       - SOLAR_MONTHLY_COST=150
+      # A TOU plan so the Rates & Time of Use card renders.
+      - 'TOU_RATES={"tz":"America/Los_Angeles","adder":0.05,"seasons":[{"months":[6,7,8,9],"periods":[{"name":"On peak","rate":0.6237,"hours":[16,21],"days":"weekday"},{"name":"Mid peak","rate":0.4164,"hours":[16,21],"days":"weekend"},{"name":"Off peak","rate":0.2786}]},{"months":[10,11,12,1,2,3,4,5],"periods":[{"name":"Mid peak","rate":0.5188,"hours":[16,21]},{"name":"Super off peak","rate":0.2729,"hours":[8,16]},{"name":"Off peak","rate":0.2890}]}]}'
       - DB_PATH=/data/solar_history.db
     volumes:
       # Mount fixtures live so tests can edit them without a rebuild.
