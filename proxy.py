@@ -221,6 +221,11 @@ def _init_db():
         notes TEXT,
         updated REAL
     )""")
+    # rate_scale added 2026-10-22: that bill's energy rates / today's TOU_RATES.
+    try:
+        c.execute("ALTER TABLE bills ADD COLUMN rate_scale REAL")
+    except sqlite3.OperationalError:
+        pass
     # Dated notes shown on the Net Cost chart (e.g. a billing plan change).
     c.execute("""CREATE TABLE IF NOT EXISTS annotations (
         date TEXT,
@@ -1551,7 +1556,7 @@ def _background_refresh_mock():
 # no solar, so "is solar saving me money?" has a number behind it.
 BILL_COLS = ("bill_date", "period_start", "period_end", "amount", "settlement",
              "nem_month", "net_kwh", "import_kwh", "export_kwh",
-             "peak_import_kwh", "base_charge", "source", "file", "notes")
+             "peak_import_kwh", "base_charge", "source", "file", "notes", "rate_scale")
 _DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
 
 
@@ -1826,11 +1831,13 @@ def _no_solar_estimate(conn, bill, tz, typical_rates=None):
             season = next((se["months"] for se in (TOU_PLAN or {}).get("seasons", []) if mid in se["months"]), set())
             mates = [v for m, v in typical_rates.items() if m in season] or list(typical_rates.values())
             rate = sum(mates) / len(mates)
-    rate = rate or COST_PER_KWH
+    # Today's TOU rates, scaled to the rates on this bill when known.
+    rate = (rate or COST_PER_KWH) * (bill.get("rate_scale") or 1)
     home = solar + net
     if home <= 0:
         return None
     return {"solar_kwh": solar, "home_kwh": home, "rate": rate, "basis": basis,
+            "rates": "bill" if bill.get("rate_scale") else "today",
             "cost": home * rate + (bill.get("base_charge") or 0)}
 
 
@@ -2217,14 +2224,19 @@ def _uapi_refresh():
     finish (up to an hour) and sync. The month is recorded before the
     request, so a failure is never retried into a paid collection."""
     month = datetime.now(_local_tz()).strftime("%Y-%m")
+    # The first pull asks for the full 36 months (older bills and their
+    # rates); after that, 2 months is enough to catch the newest bill.
+    months = 2 if _uapi_state().get("backfill_done") else 36
     _uapi_save_state(refresh_month=month, refresh_ts=time.time(), refresh_error=None)
     try:
         meters = _uapi_meters()
         r = requests.post(UTILITY_API_BASE + "meters/historical-collection",
                           headers={"Authorization": "Bearer " + UTILITY_API_TOKEN},
-                          json={"meters": meters, "collection_duration": 2}, timeout=60)
+                          json={"meters": meters, "collection_duration": months}, timeout=60)
         r.raise_for_status()
-        logger.info("UtilityAPI: requested a fresh collection for %d meter(s)", len(meters))
+        if months == 36:
+            _uapi_save_state(backfill_done=True)
+        logger.info("UtilityAPI: requested a %d-month collection for %d meter(s)", months, len(meters))
     except Exception as e:
         _uapi_save_state(refresh_error=str(e)[:300])
         logger.warning("UtilityAPI collection request failed (not retried this month): %s", e)
@@ -2253,6 +2265,40 @@ def _uapi_get(url):
         url = page.get("next")
 
 
+def _tou_key(name):
+    """('summer'|'winter', 'on'|'mid'|'off'|'super') from a bill line name
+    like "Delivery - Energy-Summer - On peak" or "Generation - Super OfPk -
+    Winter", or None."""
+    n = re.sub(r"[^a-z]", "", (name or "").lower())
+    season = "summer" if "summer" in n else "winter" if "winter" in n else None
+    if not season:
+        return None
+    per = "super" if "super" in n else "on" if "onpeak" in n else "mid" if "mid" in n else \
+        "off" if ("offpeak" in n or "ofpk" in n) else None
+    return (season, per) if per else None
+
+
+def _rate_scale(delivery, generation):
+    """How a bill's energy rates compare with today's TOU_RATES: the mean
+    ratio of (delivery + generation) $/kWh per season/period, from
+    {(season, period): rate} dicts. None without a plan or a match."""
+    if not TOU_PLAN:
+        return None
+    names = {"on": "on peak", "mid": "mid peak", "off": "off peak", "super": "super off peak"}
+    ratios = []
+    for key, d in delivery.items():
+        g = generation.get(key)
+        if g is None:
+            continue
+        months = range(6, 10) if key[0] == "summer" else (10, 11, 12, 1, 2, 3, 4, 5)
+        season = next((se for se in TOU_PLAN["seasons"] if se["months"] & set(months)), None)
+        plan = next((p["rate"] for p in (season or {}).get("periods", [])
+                     if p.get("name", "").lower() == names[key[1]]), None)
+        if plan:
+            ratios.append((d + g) / plan)
+    return sum(ratios) / len(ratios) if ratios else None
+
+
 def _uapi_bill(b):
     """A UtilityAPI bill -> a bills row. Its end date is exclusive."""
     base = b.get("base") or {}
@@ -2279,6 +2325,15 @@ def _uapi_bill(b):
     settle = sum(i.get("cost") or 0 for i in items if (i.get("name") or "").lower() == "billing adjustment")
     if settle:
         row["settlement"] = settle
+    # The bill's own per-kWh rates, so past months are priced at the rates
+    # they actually had rather than today's.
+    # Under annual NEM the delivery energy lines sit in the tracked charges.
+    tracked = [i for blk in (b.get("sce_tracked_charges") or []) for i in blk.get("line_items", [])]
+    deliv = {k: i["rate"] for i in items + tracked if i.get("rate") and (k := _tou_key(i.get("name")))
+             and "delivery" in (i.get("name") or "").lower()}
+    gen = {k: i["rate"] for sup in (b.get("suppliers") or []) for i in sup.get("supplier_line_items", [])
+           if i.get("rate") and (k := _tou_key(i.get("name")))}
+    row["rate_scale"] = _rate_scale(deliv, gen)
     return {k: v for k, v in row.items() if v is not None}
 
 
