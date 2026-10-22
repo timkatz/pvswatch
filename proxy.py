@@ -1757,17 +1757,20 @@ def _load_rates(conn, t0=None, t1=None):
     return rates.get(0) if t0 is not None else rates
 
 
-def _months_solar(conn, bill):
-    """Solar kWh for a bill period from solar_months, prorated by days.
-    None unless every month the period touches is on file."""
+def _months_solar(conn, bill, col="solar_kwh"):
+    """Solar (or home, col="home_kwh") kWh for a bill period from
+    solar_months, prorated by days. None unless every month the period
+    touches is on file (solar falls back to pvswatch's own monthly total)."""
     d0 = datetime.strptime(bill["period_start"], "%Y-%m-%d").date()
     d1 = datetime.strptime(bill["period_end"], "%Y-%m-%d").date()
-    have = dict(conn.execute("SELECT month, solar_kwh FROM solar_months WHERE solar_kwh IS NOT NULL"))
+    have = dict(conn.execute(f"SELECT month, {col} FROM solar_months WHERE {col} IS NOT NULL"))
     tz = _local_tz()
     total, day = 0.0, d0
     while day <= d1:
         key = day.strftime("%Y-%m")
         nxt = (day.replace(day=28) + timedelta(days=4)).replace(day=1)
+        if key not in have and col != "solar_kwh":
+            return None
         if key not in have:
             # Not on file: pvswatch's own total for that calendar month.
             m0 = datetime(day.year, day.month, 1, tzinfo=tz).timestamp()
@@ -1797,7 +1800,13 @@ def _no_solar_estimate(conn, bill, tz, typical_rates=None):
         return None
     net = bill.get("net_kwh")
     if net is None:
-        return None
+        # Older bills with only a total: home use straight from the
+        # monthly backfill instead of solar + net.
+        home = _months_solar(conn, bill, "home_kwh")
+        if not home:
+            return None
+        t0, t1 = _period_bounds(bill, tz)
+        net = home - (_months_solar(conn, bill) or 0)
     t0, t1 = _period_bounds(bill, tz)
     solar = _counter_delta(conn, "lifetime_kwh", t0, t1)
     basis = "pvswatch"
