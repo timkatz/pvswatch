@@ -194,3 +194,18 @@ test('cross-site writes are refused', async ({ request }) => {
   });
   expect(res.status()).toBe(403);
 });
+
+test('monthly solar backfill gives older bills a no-solar estimate', async ({ request }) => {
+  const fin = await (await request.get('/finance?group=month')).json();
+  const bill = fin.bills.find((b) => !b.no_solar && b.period_start && b.net_kwh != null);
+  expect(bill).toBeTruthy();
+  const months = [...new Set([bill.period_start.slice(0, 7), bill.period_end.slice(0, 7)])];
+  const res = await request.post('/solar-months', { data: months.map((m) => ({ month: m, solar_kwh: 900, source: 'test' })) });
+  expect(res.ok()).toBe(true);
+  const after = await (await request.get('/finance?group=month')).json();
+  const b = after.bills.find((x) => x.bill_date === bill.bill_date);
+  expect(b.no_solar).toBeTruthy();
+  expect(b.no_solar.basis).toBe('monthly');
+  expect(b.no_solar.solar_kwh).toBeGreaterThan(800);
+  expect(b.no_solar.solar_kwh).toBeLessThan(1000);
+});

@@ -228,6 +228,14 @@ def _init_db():
         detail TEXT,
         PRIMARY KEY (date, label)
     )""")
+    # Monthly solar made / home used from another source (e.g. the solar
+    # company's app) for months before pvswatch was recording.
+    c.execute("""CREATE TABLE IF NOT EXISTS solar_months (
+        month TEXT PRIMARY KEY,
+        solar_kwh REAL,
+        home_kwh REAL,
+        source TEXT
+    )""")
     # Meter intervals from the utility's Green Button download.
     c.execute("""CREATE TABLE IF NOT EXISTS utility_intervals (
         ts REAL PRIMARY KEY,
@@ -1727,35 +1735,81 @@ def _interval_net(conn, t0, t1, tz):
     return d - rcv, d, rcv, peak
 
 
-def _no_solar_estimate(conn, bill, tz):
-    """What a bill period would have cost with no solar. Home use = solar
-    made (inverter lifetime counter) + net kWh from the grid, priced at the
-    TOU rate weighted by when the home used power, plus the bill's fixed
-    base charge, which a no-solar home pays too. None without pvswatch data
-    covering the period. Battery losses count as home use, so this runs a
-    little high."""
-    if not bill.get("period_start") or not bill.get("period_end"):
-        return None
-    t0, t1 = _period_bounds(bill, tz)
-    solar = _counter_delta(conn, "lifetime_kwh", t0, t1)
-    net = bill.get("net_kwh")
-    if solar is None or net is None:
-        return None
-    home = solar + net
-    if home <= 0:
-        return None
-    e = cost = 0.0
-    rows = conn.execute("SELECT ts, consumption_kw FROM readings WHERE ts >= ? AND ts < ? ORDER BY ts",
-                        (t0, t1)).fetchall()
+def _load_rates(conn, t0=None, t1=None):
+    """Home-use-weighted TOU rate from pvswatch readings: one number for the
+    window, or with no window a {calendar month: rate} map over all
+    history (the typical rate for months pvswatch didn't record)."""
+    q, args = "SELECT ts, consumption_kw FROM readings", ()
+    if t0 is not None:
+        q, args = q + " WHERE ts >= ? AND ts < ?", (t0, t1)
+    rows = conn.execute(q + " ORDER BY ts", args).fetchall()
+    acc = {}
+    tz = _local_tz()
     for (ts, kw), nxt in zip(rows, rows[1:]):
         if not kw or kw <= 0:
             continue
         dt = min(nxt[0] - ts, 2 * REFRESH_SECS) / 3600
         per = _tou_period(ts)
-        e += kw * dt
-        cost += kw * dt * (per[1] if per else COST_PER_KWH)
-    rate = cost / e if e > 0 else COST_PER_KWH
-    return {"solar_kwh": solar, "home_kwh": home, "rate": rate,
+        key = 0 if t0 is not None else datetime.fromtimestamp(ts, tz).month
+        e, c = acc.get(key, (0.0, 0.0))
+        acc[key] = (e + kw * dt, c + kw * dt * (per[1] if per else COST_PER_KWH))
+    rates = {k: c / e for k, (e, c) in acc.items() if e > 0}
+    return rates.get(0) if t0 is not None else rates
+
+
+def _months_solar(conn, bill):
+    """Solar kWh for a bill period from solar_months, prorated by days.
+    None unless every month the period touches is on file."""
+    d0 = datetime.strptime(bill["period_start"], "%Y-%m-%d").date()
+    d1 = datetime.strptime(bill["period_end"], "%Y-%m-%d").date()
+    have = dict(conn.execute("SELECT month, solar_kwh FROM solar_months WHERE solar_kwh IS NOT NULL"))
+    total, day = 0.0, d0
+    while day <= d1:
+        key = day.strftime("%Y-%m")
+        if key not in have:
+            return None
+        nxt = (day.replace(day=28) + timedelta(days=4)).replace(day=1)
+        in_month = (nxt - day.replace(day=1)).days
+        span = (min(nxt, d1 + timedelta(days=1)) - day).days
+        total += have[key] * span / in_month
+        day = nxt
+    return total
+
+
+def _no_solar_estimate(conn, bill, tz, typical_rates=None):
+    """What a bill period would have cost with no solar. Home use = solar
+    made + net kWh from the grid, priced at the TOU rate weighted by when
+    the home uses power, plus the bill's fixed base charge, which a
+    no-solar home pays too. Battery losses count as home use, so this runs
+    a little high.
+
+    Solar comes from the inverter lifetime counter when pvswatch covers the
+    period; otherwise from solar_months (e.g. the solar company's app),
+    priced at the typical rate pvswatch has seen for that calendar month."""
+    if not bill.get("period_start") or not bill.get("period_end"):
+        return None
+    net = bill.get("net_kwh")
+    if net is None:
+        return None
+    t0, t1 = _period_bounds(bill, tz)
+    solar = _counter_delta(conn, "lifetime_kwh", t0, t1)
+    basis = "pvswatch"
+    if solar is not None:
+        rate = _load_rates(conn, t0, t1)
+    else:
+        solar = _months_solar(conn, bill)
+        if solar is None:
+            return None
+        basis = "monthly"
+        mid = datetime.fromtimestamp((t0 + t1) / 2, tz).month
+        rate = (typical_rates or {}).get(mid)
+        if rate is None and typical_rates:
+            rate = sum(typical_rates.values()) / len(typical_rates)
+    rate = rate or COST_PER_KWH
+    home = solar + net
+    if home <= 0:
+        return None
+    return {"solar_kwh": solar, "home_kwh": home, "rate": rate, "basis": basis,
             "cost": home * rate + (bill.get("base_charge") or 0)}
 
 
@@ -1801,6 +1855,7 @@ def _finance(group="month", spread=True):
     bills = [dict(r) for r in conn.execute(
         "SELECT * FROM bills WHERE amount IS NOT NULL ORDER BY COALESCE(period_end, bill_date)")]
     notes = [dict(r) for r in conn.execute("SELECT date, label, detail FROM annotations ORDER BY date")]
+    typical = _load_rates(conn) if conn.execute("SELECT 1 FROM solar_months LIMIT 1").fetchone() else {}
     for b in bills:
         b["period_end"] = b["period_end"] or b["bill_date"]
         if b.get("period_start"):
@@ -1809,7 +1864,7 @@ def _finance(group="month", spread=True):
                 for k, v in zip(("net_kwh", "import_kwh", "export_kwh", "peak_import_kwh"), iv):
                     if b[k] is None:
                         b[k] = round(v, 1)
-        b["no_solar"] = _no_solar_estimate(conn, b, tz)
+        b["no_solar"] = _no_solar_estimate(conn, b, tz, typical)
         b["solar_payment"] = SOLAR_MONTHLY_COST if (not SOLAR_COST_START or b["period_end"][:7] >= SOLAR_COST_START) else 0.0
     conn.close()
     _spread_settlements(bills)
@@ -1892,7 +1947,7 @@ def _finance(group="month", spread=True):
     }
     for b in bills:
         if b["no_solar"]:
-            b["no_solar"] = {k: round(v, 2) for k, v in b["no_solar"].items()}
+            b["no_solar"] = {k: round(v, 3) if isinstance(v, float) else v for k, v in b["no_solar"].items()}
     return {
         "group": group, "spread": spread,
         "solar_monthly_cost": SOLAR_MONTHLY_COST, "solar_cost_start": SOLAR_COST_START or None,
@@ -1995,6 +2050,40 @@ def bills_delete(bill_date):
         conn.commit()
         conn.close()
     return jsonify({"deleted": n})
+
+
+@app.route("/solar-months", methods=["GET"])
+def solar_months_list():
+    conn = sqlite3.connect(DB_PATH)
+    out = [{"month": m, "solar_kwh": s_, "home_kwh": h, "source": src} for m, s_, h, src in
+           conn.execute("SELECT month, solar_kwh, home_kwh, source FROM solar_months ORDER BY month")]
+    conn.close()
+    return jsonify({"months": out})
+
+
+@app.route("/solar-months", methods=["POST"])
+def solar_months_save():
+    """Monthly solar made (and optionally home used) for months pvswatch
+    didn't record: a list of {month: YYYY-MM, solar_kwh, home_kwh, source}."""
+    body = request.get_json(silent=True)
+    items = body if isinstance(body, list) else [body]
+    rows = []
+    for it in items:
+        if not isinstance(it, dict) or not re.match(r"^\d{4}-\d\d$", str(it.get("month", ""))):
+            return jsonify({"error": "month (YYYY-MM) is required", "item": it}), 400
+        try:
+            solar = float(it["solar_kwh"])
+            home = float(it["home_kwh"]) if it.get("home_kwh") not in (None, "") else None
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "solar_kwh must be a number", "item": it}), 400
+        rows.append((it["month"], solar, home, str(it.get("source") or "manual")[:60]))
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        conn.executemany("INSERT OR REPLACE INTO solar_months (month, solar_kwh, home_kwh, source) "
+                         "VALUES (?, ?, ?, ?)", rows)
+        conn.commit()
+        conn.close()
+    return jsonify({"saved": len(rows)})
 
 
 @app.route("/annotations", methods=["POST"])

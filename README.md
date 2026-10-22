@@ -192,6 +192,7 @@ The Flask app exposes these JSON endpoints — useful for Home Assistant, Grafan
 | `GET /finance?group=month` | Net cost report: bills grouped by `month`, `quarter`, `year` or `nemyear`, each with utility cost, solar payment, no-solar estimate, savings and change vs. the previous period / last year, plus a 12-bill headline and dated notes. `spread=0` shows NEM settle-ups as billed instead of spread over their NEM year |
 | `GET /bills`, `POST /bills`, `DELETE /bills/<date>` | List / add / delete utility bills. POST takes bill PDFs (multipart `file=`) or JSON |
 | `POST /usage` | Import a Green Button usage download (XML or CSV) |
+| `GET /solar-months`, `POST /solar-months` | Monthly solar (and home) kWh from another source, e.g. your solar company's app, for months before pvswatch was recording. Lets older bills get a no-solar estimate |
 | `POST /annotations`, `DELETE /annotations` | Dated notes shown on the Net Cost chart |
 | `POST /utilityapi/sync` | Run a UtilityAPI sync now |
 | `GET /health` | Cache freshness, history row count, and `history_earliest` timestamp |
@@ -205,6 +206,7 @@ SQLite, schema created on first start:
 - **`bills`** — one row per utility bill (`bill_date` key): billing period, `amount`, NEM `settlement` included in it, net / import / export kWh, fixed `base_charge`, `source`
 - **`utility_intervals`** — meter readings from Green Button or UtilityAPI: `ts`, `secs`, `delivered_kwh`, `received_kwh`
 - **`annotations`** — dated notes (`date`, `label`, `detail`)
+- **`solar_months`** — monthly `solar_kwh` / `home_kwh` backfill (`month` key, `source`)
 
 Schema migrations are idempotent `ALTER TABLE` calls in `_init_db()` — safe to run on existing databases.
 
