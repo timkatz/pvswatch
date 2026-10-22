@@ -31,6 +31,7 @@ Configuration is read from environment variables (set via .env file):
   SOLAR_COST_START - First month (YYYY-MM) that payment applies to (optional)
   UTILITY_API_TOKEN - utilityapi.com API token; syncs utility bills + meter data (optional)
   UTILITY_API_SYNC_HOURS - How often to sync from UtilityAPI (default: 24, 0 = only on demand)
+  UTILITY_API_REFRESH_DAY - Day of month to request one fresh collection (default: 24, 0 = off)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
@@ -111,6 +112,11 @@ BILLS_DIR = os.path.join(os.path.dirname(DB_PATH), "bills")
 UTILITY_API_TOKEN = os.environ.get("UTILITY_API_TOKEN", "").strip()
 UTILITY_API_SYNC_HOURS = float(os.environ.get("UTILITY_API_SYNC_HOURS", "24") or 0)
 UTILITY_API_BASE = "https://utilityapi.com/api/v2/"
+# Ask UtilityAPI to collect fresh data from the utility once a calendar
+# month, on or after this day (0 = never). UtilityAPI's first collection
+# each month is free; later ones are billed, so this never runs twice in
+# a month, even after a failure.
+UTILITY_API_REFRESH_DAY = int(os.environ.get("UTILITY_API_REFRESH_DAY", "24") or 0)
 
 # Logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -1823,6 +1829,7 @@ def _finance(group="month", spread=True):
             rows.append(r)
         sce = b["accrued"] if spread else b["amount"]
         r["bills"].append(b["bill_date"])
+        r.setdefault("_totals", []).append(sce + b["solar_payment"])
         r["sce_cash"] += b["amount"]
         r["sce"] += sce
         r["solar_payment"] += b["solar_payment"]
@@ -1835,19 +1842,36 @@ def _finance(group="month", spread=True):
             r["no_solar"] += b["no_solar"]["cost"]
             r["no_solar_bills"] += 1
             r["paid_with_data"] += sce + b["solar_payment"]
+    expected = {"month": 1, "quarter": 3, "year": 12, "nemyear": 12}[group]
     for i, r in enumerate(rows):
         r["total"] = r["sce"] + r["solar_payment"]
         n = len(r["bills"])
+        r["expected_bills"] = expected
+        # The newest period is still filling in; compare it with the same
+        # number of bills from the earlier period ("so far").
+        r["in_progress"] = i == len(rows) - 1 and n < expected
         r["coverage"] = "full" if r["no_solar_bills"] == n else "partial" if r["no_solar_bills"] else "none"
         r["saved"] = r["no_solar"] - r["paid_with_data"] if r["no_solar_bills"] else None
         if not r["no_solar_bills"]:
             r["no_solar"] = None
         prev = rows[i - 1] if i else None
         ly = by_key.get(_shift_year(r["key"], group))
-        r["prev_total"] = prev["total"] if prev else None
-        r["yoy_total"] = ly["total"] if ly else None
+        # Compare only like with like: full periods, or the period in
+        # progress against the same number of bills before. A period with
+        # bills missing (before history starts) isn't compared.
+        if r["in_progress"]:
+            cmp = lambda o: sum(o["_totals"][:n]) if len(o["_totals"]) >= n else None
+        elif n < expected:
+            cmp = lambda o: None
+        else:
+            cmp = lambda o: o["total"] if len(o["bills"]) >= expected else None
+        r["prev_total"] = cmp(prev) if prev else None
+        r["yoy_total"] = cmp(ly) if ly else None
         r["prev_saved"] = prev["saved"] if prev else None
         r["yoy_saved"] = ly["saved"] if ly else None
+
+    for r in rows:
+        r.pop("_totals", None)
 
     # Headline over the last 12 billed months.
     last12 = bills[-12:]
@@ -1876,7 +1900,8 @@ def _finance(group="month", spread=True):
         "nem_settlement_month": nem_end if sett else None,
         "headline": headline, "rows": rows, "annotations": notes, "bills": bills,
         "utilityapi": {"enabled": bool(UTILITY_API_TOKEN), "last_sync": _uapi["last_sync"],
-                       "last_error": _uapi["last_error"]},
+                       "last_error": _uapi["last_error"], "refresh_day": UTILITY_API_REFRESH_DAY,
+                       **{k: v for k, v in _uapi_state().items() if k.startswith("refresh_")}},
     }
 
 
@@ -2027,6 +2052,67 @@ def usage_upload():
 _uapi = {"last_sync": None, "last_error": None, "bills": 0, "intervals": 0, "running": False}
 
 
+def _uapi_state_file():
+    return os.path.join(os.path.dirname(DB_PATH), "utilityapi_state.json")
+
+
+def _uapi_state():
+    try:
+        with open(_uapi_state_file()) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _uapi_save_state(**kw):
+    st = _uapi_state()
+    st.update(kw)
+    with open(_uapi_state_file(), "w") as f:
+        json.dump(st, f)
+
+
+def _uapi_meters():
+    return [m["uid"] for page in _uapi_get("meters") for m in page.get("meters", [])
+            if not m.get("is_archived")]
+
+
+def _uapi_refresh_due(now=None):
+    """True once per calendar month, on or after UTILITY_API_REFRESH_DAY."""
+    if UTILITY_API_REFRESH_DAY <= 0:
+        return False
+    t = datetime.fromtimestamp(now or time.time(), _local_tz())
+    return t.day >= UTILITY_API_REFRESH_DAY and _uapi_state().get("refresh_month") != t.strftime("%Y-%m")
+
+
+def _uapi_refresh():
+    """Request a 2-month collection for each meter, then wait for it to
+    finish (up to an hour) and sync. The month is recorded before the
+    request, so a failure is never retried into a paid collection."""
+    month = datetime.now(_local_tz()).strftime("%Y-%m")
+    _uapi_save_state(refresh_month=month, refresh_ts=time.time(), refresh_error=None)
+    try:
+        meters = _uapi_meters()
+        r = requests.post(UTILITY_API_BASE + "meters/historical-collection",
+                          headers={"Authorization": "Bearer " + UTILITY_API_TOKEN},
+                          json={"meters": meters, "collection_duration": 2}, timeout=60)
+        r.raise_for_status()
+        logger.info("UtilityAPI: requested a fresh collection for %d meter(s)", len(meters))
+    except Exception as e:
+        _uapi_save_state(refresh_error=str(e)[:300])
+        logger.warning("UtilityAPI collection request failed (not retried this month): %s", e)
+        return
+    for _ in range(30):
+        time.sleep(120)
+        try:
+            pending = [m for page in _uapi_get("meters") for m in page.get("meters", [])
+                       if m["uid"] in meters and m.get("status") == "pending"]
+        except Exception:
+            continue
+        if not pending:
+            break
+    _uapi_sync()
+
+
 def _uapi_get(url):
     """GET a UtilityAPI path or full `next` URL; yields each page."""
     while url:
@@ -2074,8 +2160,7 @@ def _uapi_sync():
         return dict(_uapi)
     _uapi["running"] = True
     try:
-        meters = [m["uid"] for page in _uapi_get("meters") for m in page.get("meters", [])
-                  if not m.get("is_archived")]
+        meters = _uapi_meters()
         n_bills = n_iv = 0
         for uid in meters:
             rows = [_uapi_bill(b) for page in _uapi_get(f"bills?meters={uid}") for b in page.get("bills", [])]
@@ -2115,10 +2200,14 @@ def _uapi_sync():
 
 
 def _uapi_loop():
-    logger.info("UtilityAPI sync enabled (every %gh)", UTILITY_API_SYNC_HOURS)
+    logger.info("UtilityAPI sync enabled (every %gh; monthly collection on day %d)",
+                UTILITY_API_SYNC_HOURS, UTILITY_API_REFRESH_DAY)
     while True:
-        _uapi_sync()
-        time.sleep(UTILITY_API_SYNC_HOURS * 3600)
+        if _uapi_refresh_due():
+            _uapi_refresh()
+        elif UTILITY_API_SYNC_HOURS > 0 and time.time() - (_uapi["last_sync"] or 0) >= UTILITY_API_SYNC_HOURS * 3600:
+            _uapi_sync()
+        time.sleep(3600)
 
 
 @app.route("/utilityapi/sync", methods=["POST"])
@@ -2791,7 +2880,7 @@ if __name__ == "__main__":
         t.start()
         if MIDSTATE_POLL_SECS > 0:
             threading.Thread(target=_midstate_watch, daemon=True).start()
-        if UTILITY_API_TOKEN and UTILITY_API_SYNC_HOURS > 0:
+        if UTILITY_API_TOKEN and (UTILITY_API_SYNC_HOURS > 0 or UTILITY_API_REFRESH_DAY > 0):
             threading.Thread(target=_uapi_loop, daemon=True).start()
     else:
         logger.warning("PVS_IP or PVS_PASS not set — background refresh disabled, data will be fetched on-demand")

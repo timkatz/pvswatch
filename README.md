@@ -168,6 +168,7 @@ All settings come from `.env`. Required fields are marked.
 | `SOLAR_COST_START` | — | First month (`YYYY-MM`) that payment applies to; blank = every bill |
 | `UTILITY_API_TOKEN` | — | Optional [UtilityAPI](https://utilityapi.com) API token. Syncs utility bills and 15-min meter data daily |
 | `UTILITY_API_SYNC_HOURS` | `24` | UtilityAPI sync interval (`0` = only via `POST /utilityapi/sync`) |
+| `UTILITY_API_REFRESH_DAY` | `24` | Day of the month to ask UtilityAPI for one fresh collection from the utility (`0` = off). Runs at most once per calendar month, since only the first collection each month is free |
 | `ALERT_BATTERY_PCT` | `20` | Alert when usable battery charge drops below this % (`0` = off); recovery alert at +5 |
 | `OUTAGE_GAP_MINS` | `20` | A gap in history longer than this counts as a "PVS offline" outage |
 | `UPS_LOG_DIR` | — | Host directory with `apcupsd.events` (e.g. `/var/log`) for grid power outage tracking |

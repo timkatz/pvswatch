@@ -739,7 +739,9 @@
     .fin-msg { flex-basis: 100%; min-height: 1em; }
     .fin-msg.err { color: var(--red); }
     .fin-help { font-size: 0.7rem; color: var(--text-dim); margin-top: 0.6rem; line-height: 1.45; }
-    .fin-notes { list-style: none; margin-top: 0.6rem; font-size: 0.75rem; }
+    .fin-notes-wrap { margin-top: 0.6rem; font-size: 0.75rem; color: var(--text-dim); }
+    .fin-notes-wrap summary { cursor: pointer; user-select: none; }
+    .fin-notes { list-style: none; margin-top: 0.4rem; font-size: 0.75rem; }
     .fin-notes li { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.2rem 0; }
     .fin-notes .when { color: var(--text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
     .fin-notes .what { color: var(--accent); font-weight: 600; }
@@ -984,7 +986,7 @@
       <div class="fin-chart"><canvas id="finChart"></canvas></div>
     </div>
     <div class="fin-table-wrap"><table class="fin-table" id="finTable"></table></div>
-    <ul class="fin-notes" id="finNotes"></ul>
+    <details class="fin-notes-wrap" id="finNotesWrap"><summary id="finNotesSum">Notes</summary><ul class="fin-notes" id="finNotes"></ul></details>
     <div class="fin-actions">
       <label class="pill-btn" title="Upload one or more utility bill PDFs">⬆ Bill PDF<input type="file" id="finPdf" accept="application/pdf,.pdf" multiple hidden></label>
       <label class="pill-btn" title="Upload the utility's Green Button usage download (XML or CSV)">⬆ Green Button<input type="file" id="finGb" accept=".xml,.csv,text/xml,text/csv" hidden></label>
@@ -2263,6 +2265,11 @@ function finLabel(key) {
   return key;
 }
 
+function finShortDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return MONTHS[m - 1] + ' ' + d + ', ' + y;
+}
+
 // Change vs. an earlier period's net cost. Paying more is red.
 function finDelta(now, before) {
   if (now == null || before == null) return '<span class="dim">—</span>';
@@ -2300,15 +2307,33 @@ function renderFinance() {
   renderFinHeadline(d);
   renderFinChart(d);
   renderFinTable(d);
+  document.getElementById('finNotesWrap').style.display = d.annotations.length ? '' : 'none';
+  document.getElementById('finNotesSum').textContent = `📌 ${d.annotations.length} note${d.annotations.length === 1 ? '' : 's'} · manage`;
   const notes = document.getElementById('finNotes');
   notes.innerHTML = d.annotations.map((a, i) =>
-    `<li><span class="when">${esc(a.date)}</span><span class="what">📌 ${esc(a.label)}</span>` +
+    `<li><span class="when">${esc(finShortDate(a.date))}</span><span class="what">📌 ${esc(a.label)}</span>` +
     `<span class="detail">${esc(a.detail)}</span><button title="Remove note" data-note="${i}">×</button></li>`).join('');
   const rate = d.rate_model === 'tou' ? 'your time-of-use rates' : 'your flat rate';
   document.getElementById('finHelp').textContent =
     `No-solar estimate = what the home used (solar made + net kWh from the grid) at ${rate}, plus the bill's fixed base charge. ` +
     `Solar payment: ${money(d.solar_monthly_cost, 2)}/mo` + (d.solar_cost_start ? ` from ${d.solar_cost_start}` : '') +
-    `. ◆ = includes a NEM settle-up` + (d.spread ? ' (spread over its NEM year).' : '.');
+    `. ◆ = includes a NEM settle-up` + (d.spread ? ' (spread over its NEM year).' : '.') + finUapiText(d.utilityapi);
+}
+
+function finUapiText(u) {
+  if (!u || !u.enabled) return '';
+  let t = ' UtilityAPI: ' + (u.last_sync ? 'synced ' + new Date(u.last_sync * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'not synced yet');
+  if (u.last_error) t += ' (last sync failed: ' + u.last_error + ')';
+  if (u.refresh_day) {
+    const now = new Date();
+    const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const next = u.refresh_month === thisMonth || now.getDate() >= u.refresh_day
+      ? new Date(now.getFullYear(), now.getMonth() + 1, u.refresh_day)
+      : new Date(now.getFullYear(), now.getMonth(), u.refresh_day);
+    t += '; next bill pull ' + next.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    if (u.refresh_error) t += ' (last pull failed: ' + u.refresh_error + ')';
+  }
+  return t + '.';
 }
 
 function renderFinHeadline(d) {
@@ -2341,32 +2366,37 @@ function renderFinHeadline(d) {
   el.innerHTML = `<div class="big">${big}</div><div class="sub">${sub}</div>`;
 }
 
-// Dashed vertical marker + label for each dated note.
+// A dashed line and a small pin above each bar that has notes. The note
+// text is in the tooltip and the table, so nothing overlaps on the chart.
 function finNotesPlugin(rows, notes) {
   return {
     id: 'finNotes',
     afterDatasetsDraw(chart) {
       const { ctx, chartArea, scales } = chart;
-      const perIdx = {};
+      const count = {};
       for (const a of notes) {
         const i = finNoteIndex(rows, a.date);
-        if (i < 0) continue;
-        const x = scales.x.getPixelForValue(i);
-        const n = perIdx[i] = (perIdx[i] || 0) + 1;
+        if (i >= 0) count[i] = (count[i] || 0) + 1;
+      }
+      for (const [i, n] of Object.entries(count)) {
+        const x = scales.x.getPixelForValue(+i);
         ctx.save();
-        ctx.strokeStyle = 'rgba(245,158,11,0.8)';
-        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = 'rgba(245,158,11,0.55)';
+        ctx.setLineDash([3, 3]);
         ctx.beginPath();
-        ctx.moveTo(x, chartArea.top);
+        ctx.moveTo(x, chartArea.top + 8);
         ctx.lineTo(x, chartArea.bottom);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = '#f59e0b';
-        ctx.font = '600 10px -apple-system, system-ui, sans-serif';
-        const text = '📌 ' + (a.label.length > 28 ? a.label.slice(0, 27) + '…' : a.label);
-        const w = ctx.measureText(text).width;
-        const tx = x + 4 + w > chartArea.right ? x - 4 - w : x + 4;
-        ctx.fillText(text, tx, chartArea.top + 10 + (n - 1) * 13);
+        ctx.beginPath();
+        ctx.arc(x, chartArea.top + 4, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.font = '700 9px -apple-system, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(n), x, chartArea.top + 4.5);
         ctx.restore();
       }
     },
@@ -2393,8 +2423,9 @@ function renderFinChart(d) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: 6 } },
       plugins: {
-        legend: { labels: { color: '#7a8a9e', boxWidth: 10, font: { size: 11 } } },
+        legend: { labels: { color: '#7a8a9e', boxWidth: 10, font: { size: 11 }, sort: (a, b) => a.datasetIndex - b.datasetIndex } },
         tooltip: {
           backgroundColor: '#1e2a3a', titleColor: '#e4e8ee', bodyColor: '#e4e8ee',
           borderColor: '#2a3a4e', borderWidth: 1, padding: 10,
@@ -2421,10 +2452,13 @@ function renderFinChart(d) {
 
 function renderFinTable(d) {
   const t = document.getElementById('finTable');
+  // For year groupings the previous period IS last year: one column.
+  const yearly = d.group === 'year' || d.group === 'nemyear';
+  const cols = yearly ? 8 : 9;
   const head = '<thead><tr><th>Period</th><th>Utility</th><th>Solar</th><th>Net cost</th><th>No-solar est.</th>' +
-               '<th>Saved</th><th>vs prev</th><th>vs last yr</th><th>Net kWh</th></tr></thead>';
+               `<th>Saved</th><th>${yearly ? 'vs prev yr' : 'vs prev'}</th>${yearly ? '' : '<th>vs last yr</th>'}<th>Net kWh</th></tr></thead>`;
   if (!d.rows.length) {
-    t.innerHTML = head + '<tbody><tr><td class="empty" colspan="9">No bills yet</td></tr></tbody>';
+    t.innerHTML = head + `<tbody><tr><td class="empty" colspan="${cols}">No bills yet</td></tr></tbody>`;
     return;
   }
   const body = [];
@@ -2432,15 +2466,20 @@ function renderFinTable(d) {
     const r = d.rows[i];
     const editable = r.bills.length === 1;
     const settle = r.settlement ? `<span class="mark" title="Includes a ${money(r.settlement, 2)} NEM settle-up (billed ${money(r.sce_cash, 2)})">◆</span>` : '';
+    const n = r.bills.length;
+    const part = r.coverage === 'partial'
+      ? `<span class="dim" title="Estimate covers ${r.no_solar_bills} of these ${n} bills"> (${r.no_solar_bills}/${n})</span>` : '';
     const saved = r.saved == null ? '<span class="dim">—</span>'
-      : `<span class="${r.saved >= 0 ? 'pos' : 'neg'}">${money(r.saved)}</span>${r.coverage === 'partial' ? '<span class="dim" title="Estimate covers only some of these bills"> ~</span>' : ''}`;
+      : `<span class="${r.saved >= 0 ? 'pos' : 'neg'}">${money(r.saved)}</span>${part}`;
+    const sub = r.in_progress ? `<span class="dim" title="${n} of ${r.expected_bills} bills so far; changes compare the same stretch of the earlier period"> · so far</span>`
+      : n < r.expected_bills ? `<span class="dim" title="Only ${n} of ${r.expected_bills} bills on file"> · ${n} bills</span>` : '';
     body.push(`<tr class="${editable ? 'clickable' : ''}" data-bill="${editable ? esc(r.bills[0]) : ''}" title="${editable ? 'Edit this bill' : r.bills.length + ' bills'}">` +
-      `<td>${esc(finLabel(r.key))}</td><td>${money(r.sce)}${settle}</td><td>${money(r.solar_payment)}</td>` +
-      `<td><b>${money(r.total)}</b></td><td>${r.no_solar == null ? '<span class="dim">—</span>' : money(r.no_solar)}</td>` +
-      `<td>${saved}</td><td>${finDelta(r.total, r.prev_total)}</td><td>${finDelta(r.total, r.yoy_total)}</td>` +
+      `<td>${esc(finLabel(r.key))}${sub}</td><td>${money(r.sce)}${settle}</td><td>${money(r.solar_payment)}</td>` +
+      `<td><b>${money(r.total)}</b></td><td>${r.no_solar == null ? '<span class="dim">—</span>' : money(r.no_solar) + part}</td>` +
+      `<td>${saved}</td><td>${finDelta(r.total, r.prev_total)}</td>${yearly ? '' : `<td>${finDelta(r.total, r.yoy_total)}</td>`}` +
       `<td>${r.net_kwh == null ? '<span class="dim">—</span>' : Math.round(r.net_kwh).toLocaleString()}</td></tr>`);
     for (const a of d.annotations) {
-      if (finNoteIndex(d.rows, a.date) === i) body.push(`<tr class="note-row"><td colspan="9">📌 ${esc(a.date)} · ${esc(a.label)}${a.detail ? ' — ' + esc(a.detail) : ''}</td></tr>`);
+      if (finNoteIndex(d.rows, a.date) === i) body.push(`<tr class="note-row" title="${esc(a.detail)}"><td colspan="${cols}">📌 ${esc(finShortDate(a.date))} · ${esc(a.label)}</td></tr>`);
     }
   }
   t.innerHTML = head + '<tbody>' + body.join('') + '</tbody>';
