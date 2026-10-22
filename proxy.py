@@ -1966,6 +1966,24 @@ def _finance(group="month", spread=True):
         "net_cost_prior_12": sum(sce_of(b) + b["solar_payment"] for b in prior12) if len(prior12) == 12 else None,
         "bills_12": len(last12),
     }
+    # This year so far vs. the same stretch of last year, and since the
+    # first bill. Savings sum only bills with an estimate.
+    def _saved(bs):
+        est = [b for b in bs if b["no_solar"]]
+        paid = sum(sce_of(b) + b["solar_payment"] for b in est)
+        ns = sum(b["no_solar"]["cost"] for b in est)
+        return {"saved": ns - paid if est else None, "paid": paid, "no_solar": ns,
+                "bills": len(bs), "with_data": len(est)}
+    if bills:
+        year = int(bills[-1]["period_end"][:4])
+        cur = [b for b in bills if int(b["period_end"][:4]) == year]
+        prev = [b for b in bills if int(b["period_end"][:4]) == year - 1][:len(cur)]
+        headline["ytd"] = {"year": year, **_saved(cur),
+                           "prev": {"year": year - 1, **_saved(prev)} if len(prev) == len(cur) else None}
+        life = _saved(bills)
+        life["since"] = bills[0].get("period_start") or bills[0]["bill_date"]
+        life["per_month"] = life["saved"] / life["with_data"] if life["with_data"] else None
+        headline["lifetime"] = life
     for b in bills:
         if b["no_solar"]:
             b["no_solar"] = {k: round(v, 3) if isinstance(v, float) else v for k, v in b["no_solar"].items()}

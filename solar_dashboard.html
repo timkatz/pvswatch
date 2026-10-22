@@ -716,6 +716,13 @@
     .fin-headline.good .big { color: var(--green); }
     .fin-headline.bad .big { color: var(--red); }
     .fin-headline .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.35rem; line-height: 1.45; }
+    .fin-headline.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; padding: 0; background: none; border: none; }
+    .fin-tile { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; min-width: 0; }
+    .fin-tile .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+    .fin-tile .value { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.2; margin-top: 0.2rem; }
+    .fin-tile .sub { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.3rem; line-height: 1.4; }
+    .fin-tile .pos { color: var(--green); }
+    .fin-tile .neg { color: var(--red); }
     .fin-chart { position: relative; height: 260px; }
     .fin-table-wrap { overflow-x: auto; margin-top: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); }
     .fin-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
@@ -756,6 +763,9 @@
     .fin-form-actions .pill-btn { border-radius: 9999px; }
     .fin-form-actions .primary { background: var(--accent); color: #000; border-color: var(--accent); }
     .fin-form-actions .danger { margin-right: auto; color: var(--red); border-color: rgba(239,68,68,0.4); }
+    @media (max-width: 640px) {
+      .fin-headline.tiles { grid-template-columns: 1fr; }
+    }
     @media (max-width: 480px) {
       .fin-form { grid-template-columns: 1fr; }
       .fin-toggle { margin-left: 0; }
@@ -2336,6 +2346,8 @@ function finUapiText(u) {
   return t + '.';
 }
 
+// Three plain tiles: this year vs. the same months last year, since the
+// first bill, and what you actually paid over the last 12 bills.
 function renderFinHeadline(d) {
   const el = document.getElementById('finHeadline');
   const h = d.headline;
@@ -2345,25 +2357,28 @@ function renderFinHeadline(d) {
       '<div class="sub">Upload utility bill PDFs below, or add one by hand.</div>';
     return;
   }
-  let big, sub = '';
-  if (h.months) {
-    const good = h.saved >= 0;
-    el.className = 'fin-headline ' + (good ? 'good' : 'bad');
-    big = good ? `☀️ Solar is saving you about ${money(h.per_month)}/mo`
-               : `Solar is costing you about ${money(-h.per_month)}/mo more`;
-    sub = `Last ${h.months} bill${h.months === 1 ? '' : 's'} with data: you paid ${money(h.paid)} ` +
-          `(utility ${money(h.sce)} + solar ${money(h.solar_payment)}) vs about ${money(h.no_solar)} with no solar.`;
-  } else {
-    el.className = 'fin-headline';
-    big = `Net cost ${money(h.net_cost_12)} over the last ${h.bills_12} bill${h.bills_12 === 1 ? '' : 's'}`;
-    sub = 'The no-solar estimate needs pvswatch history covering a whole bill period.';
+  const savedTxt = v => v == null ? '—' : `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '' : '−'}${money(Math.abs(v))}</span>`;
+  const cover = o => o.with_data < o.bills ? ` · ${o.with_data} of ${o.bills} bills` : '';
+  const tiles = [];
+  const y = h.ytd;
+  if (y) {
+    let sub = `saved by solar, ${y.bills} bill${y.bills === 1 ? '' : 's'} so far${cover(y).replace(' · ', ' · estimate on ')}`;
+    if (y.prev && y.prev.saved != null) sub = `vs ${savedTxt(y.prev.saved)} by this point in ${y.prev.year}` + (y.with_data < y.bills ? ` · ${y.with_data} of ${y.bills} bills` : '');
+    tiles.push(`<div class="fin-tile"><div class="label">${y.year} so far</div><div class="value">${savedTxt(y.saved)}</div><div class="sub">${sub}</div></div>`);
   }
-  if (h.net_cost_12 != null && h.net_cost_prior_12 != null) {
-    sub += ` Net cost, last 12 bills: ${money(h.net_cost_12)} vs ${money(h.net_cost_prior_12)} the 12 before (${finDelta(h.net_cost_12, h.net_cost_prior_12)}).`;
-  } else if (h.months && h.net_cost_12 != null) {
-    sub += ` Net cost, last ${h.bills_12} bills: ${money(h.net_cost_12)}.`;
+  const L = h.lifetime;
+  if (L) {
+    const since = finShortDate(L.since).replace(/ \d+,/, '');
+    tiles.push(`<div class="fin-tile"><div class="label">Since ${esc(since)}</div><div class="value">${savedTxt(L.saved)}</div>` +
+      `<div class="sub">${L.per_month == null ? '' : `about ${savedTxt(L.per_month)}/mo · `}paid ${money(L.paid)} vs ~${money(L.no_solar)} without solar${cover(L)}</div></div>`);
   }
-  el.innerHTML = `<div class="big">${big}</div><div class="sub">${sub}</div>`;
+  if (h.net_cost_12 != null) {
+    const cmp = h.net_cost_prior_12 != null ? ` · ${finDelta(h.net_cost_12, h.net_cost_prior_12)} vs the 12 before` : '';
+    tiles.push(`<div class="fin-tile"><div class="label">Paid, last ${h.bills_12} bills</div><div class="value">${money(h.net_cost_12)}</div>` +
+      `<div class="sub">${money(h.net_cost_12 / h.bills_12)}/mo, utility + solar${cmp}</div></div>`);
+  }
+  el.className = 'fin-headline tiles';
+  el.innerHTML = tiles.join('');
 }
 
 // A dashed line and a small pin above each bar that has notes. The note

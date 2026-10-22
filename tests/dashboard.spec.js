@@ -153,7 +153,9 @@ test('Net Cost card: headline, groups, settle-up spread and notes', async ({ pag
   const accrued = fin.bills.reduce((s, b) => s + b.accrued, 0);
   expect(Math.abs(cash - accrued)).toBeLessThan(0.01);
 
-  await expect(page.locator('#finHeadline .big')).toContainText(/Solar is (saving|costing)/);
+  await expect(page.locator('#finHeadline .fin-tile')).toHaveCount(3);
+  await expect(page.locator('#finHeadline')).toContainText(/so far/);
+  await expect(page.locator('#finHeadline')).toContainText(/Since /);
   await expect(page.locator('#finTable')).toContainText('Billing switched to monthly');
   await expect(page.locator('#finTable .mark')).toHaveCount(1);  // the one settle-up
 
