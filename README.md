@@ -160,6 +160,7 @@ All settings come from `.env`. Required fields are marked.
 | `NTFY_TOKEN` | — | Optional ntfy access token for protected topics |
 | `NTFY_EMAIL` | — | Optional: ntfy also forwards each alert to this email address |
 | `NTFY_FALLBACK_URL` / `NTFY_FALLBACK_TOKEN` | — | Optional second ntfy server, tried only if the primary fails |
+| `TOU_RATES` | — | Optional time-of-use plan as JSON (see `.env.example`). Makes "Cost saved" the real bill difference by time of day; overrides `COST_PER_KWH` |
 | `ALERT_STALE_MINS` | `30` | Minutes without fresh PVS data before alerting |
 | `MIDSTATE_POLL_SECS` | `60` | How often to check SunVault's grid/backup state; alerts on every change (`0` = off) |
 | `ALERT_BATTERY_PCT` | `20` | Alert when usable battery charge drops below this % (`0` = off); recovery alert at +5 |

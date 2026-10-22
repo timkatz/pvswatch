@@ -27,6 +27,7 @@ services:
       - REFRESH_SECS=${REFRESH_SECS:-300}
       - COST_PER_KWH=${COST_PER_KWH:-0.30}
       - CO2_LBS_PER_KWH=${CO2_LBS_PER_KWH:-0.85}
+      - TOU_RATES=${TOU_RATES:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NTFY_URL=${NTFY_URL:-}
       - NTFY_TOKEN=${NTFY_TOKEN:-}

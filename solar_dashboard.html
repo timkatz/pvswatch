@@ -888,7 +888,7 @@
       <div class="savings-item">
         <span class="icon">💵</span>
         <span class="value" id="sv_dollars">—</span>
-        <span class="label">Cost saved</span>
+        <span class="label" id="sv_dollarsLabel">Cost saved</span>
       </div>
       <div class="savings-item">
         <span class="icon">🏭</span>
@@ -1398,6 +1398,8 @@ function applySavings(t) {
   if (section) section.style.opacity = '1';
   if (scope) scope.textContent = 'for ' + (RANGE_LABEL[currentRange] || currentRange);
   document.getElementById('sv_dollars').textContent = '$' + (t.savings_dollars ?? 0).toFixed(2);
+  document.getElementById('sv_dollarsLabel').textContent =
+    t.savings_model === 'tou' ? 'Cost saved · TOU' : 'Cost saved';
   document.getElementById('sv_co2').textContent     = (t.co2_lbs ?? 0).toLocaleString();
   document.getElementById('sv_trees').textContent   = (t.trees_equivalent ?? 0).toFixed(1);
   document.getElementById('sv_miles').textContent   = Math.round(t.miles_not_driven ?? 0).toLocaleString();

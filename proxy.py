@@ -67,7 +67,9 @@ FIXTURES_DIR = os.environ.get("FIXTURES_DIR", os.path.join(os.path.dirname(os.pa
 OUTAGE_GAP_MINS = int(os.environ.get("OUTAGE_GAP_MINS", "20"))
 UPS_EVENTS_FILE = os.environ.get("UPS_EVENTS_FILE", "").strip()
 
-# Savings model: avoided cost = min(solar_kwh, home_kwh) * COST_PER_KWH
+# Savings model: avoided cost = min(solar_kwh, home_kwh) * COST_PER_KWH,
+# or with TOU_RATES set, the bill difference Σ (home - net import) × rate(t),
+# which credits exports (NEM netting) and the battery's time shift.
 # CO2 model: solar_kwh * CO2_LBS_PER_KWH (full production offsets grid CO2)
 # Stale-data alert: push to an ntfy topic when no successful PVS refresh
 # for ALERT_STALE_MINS, and again when data comes back. Disabled if unset.
@@ -86,6 +88,14 @@ ALERT_BATTERY_PCT = float(os.environ.get("ALERT_BATTERY_PCT", "20"))
 # loop so a short outage isn't missed between 5-min refreshes.
 MIDSTATE_POLL_SECS = int(os.environ.get("MIDSTATE_POLL_SECS", "60"))
 COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
+# Time-of-use rate plan as JSON (all-in $/kWh, delivery + generation). Shape:
+#   {"tz": "America/Los_Angeles", "adder": 0.05, "seasons": [
+#     {"months": [6,7,8,9], "periods": [
+#       {"name": "On peak", "rate": 0.62, "hours": [16, 21], "days": "weekday"},
+#       {"name": "Off peak", "rate": 0.28}]}, ...]}
+# The first matching period wins; one without "hours" is the season default.
+# "days" is "weekday", "weekend" or omitted (every day). Holidays aren't modeled.
+TOU_RATES_RAW = os.environ.get("TOU_RATES", "").strip()
 CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
 
 # Logging
@@ -988,6 +998,67 @@ def _recovery_cause(down_secs):
     return f"The PVS stayed up the whole time ({_fmt_duration(up)} uptime), so it was a WiFi/network problem."
 
 
+# ── Time-of-use rates ────────────────────────────────────────────────
+def _load_tou(raw):
+    if not raw:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        plan = json.loads(raw)
+        plan["_tz"] = ZoneInfo(plan.get("tz", "UTC"))
+        plan["adder"] = float(plan.get("adder", 0))
+        for season in plan["seasons"]:
+            season["months"] = set(season["months"])
+            for p in season["periods"]:
+                p["rate"] = float(p["rate"])
+        return plan
+    except Exception as e:
+        logger.error("TOU_RATES is invalid, using flat COST_PER_KWH: %s", e)
+        return None
+
+
+TOU_PLAN = _load_tou(TOU_RATES_RAW)
+
+
+def _tou_period(ts, plan=None):
+    """(name, $/kWh) for an epoch under the TOU plan, or None without one."""
+    plan = plan or TOU_PLAN
+    if not plan:
+        return None
+    t = datetime.fromtimestamp(ts, plan["_tz"])
+    weekend = t.weekday() >= 5
+    for season in plan["seasons"]:
+        if t.month not in season["months"]:
+            continue
+        for p in season["periods"]:
+            days = p.get("days")
+            if (days == "weekday" and weekend) or (days == "weekend" and not weekend):
+                continue
+            h = p.get("hours")
+            if h and not (h[0] <= t.hour < h[1]):
+                continue
+            return p.get("name", ""), p["rate"] + plan["adder"]
+    return None
+
+
+def _tou_savings(conn, cutoff, end_ts):
+    """Bill difference over the window: Σ (home load - grid import) × rate.
+    Each reading counts for the time until the next one, capped at two poll
+    intervals so a data gap doesn't get billed."""
+    rows = conn.execute(
+        "SELECT ts, consumption_kw, net_kw FROM readings WHERE ts > ? AND ts <= ? ORDER BY ts",
+        (cutoff, end_ts)).fetchall()
+    cap = 2 * REFRESH_SECS
+    total = 0.0
+    for (ts, cons, net), nxt in zip(rows, rows[1:]):
+        dt = min(nxt[0] - ts, cap)
+        per = _tou_period(ts)
+        if per is None or cons is None or net is None:
+            continue
+        total += (cons - net) * dt / 3600 * per[1]
+    return total
+
+
 # ── SunVault grid/backup state (midstate) ────────────────────────────
 # livedata midstate is the Hub+ MID (main grid contactor) state. Observed:
 # 0 before the Hub+ was commissioned (grid up), 2 grid-connected. SunPower
@@ -1631,7 +1702,8 @@ def history():
             grid_import_kwh = max(0, net_kwh)
             grid_export_kwh = max(0, -net_kwh)
             avoided_kwh = min(solar_kwh, home_kwh)  # solar that offset grid use
-            savings_dollars = avoided_kwh * COST_PER_KWH
+            savings_dollars = (_tou_savings(conn, cutoff, end_ts) if TOU_PLAN
+                               else avoided_kwh * COST_PER_KWH)
             co2_lbs = solar_kwh * CO2_LBS_PER_KWH
             independence_pct = (solar_kwh / home_kwh * 100) if home_kwh > 0.01 else None
 
@@ -1644,6 +1716,7 @@ def history():
                 "grid_export_kwh": round(grid_export_kwh, 2),
                 "avoided_kwh": round(avoided_kwh, 2),
                 "savings_dollars": round(savings_dollars, 2),
+                "savings_model": "tou" if TOU_PLAN else "flat",
                 "co2_lbs": round(co2_lbs, 1),
                 "trees_equivalent": round(co2_lbs / 48.0, 1),
                 "miles_not_driven": round(co2_lbs / 0.89, 0),
