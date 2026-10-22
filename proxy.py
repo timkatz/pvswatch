@@ -1593,13 +1593,17 @@ def _parse_sce_bill(text):
     m = re.search(r"Billing period:?\s*" + date + r"\s*to\s*" + date, text)
     if m:
         out["period_start"], out["period_end"] = _us_date(m.group(1)), _us_date(m.group(2))
-    m = re.search(r"settlement charges are\s*(-?)\$\s*([\d,]+\.\d\d)", text)
+    m = re.search(r"settlement\s+charges\s+are\s*(-?)\$\s*([\d,]+\.\d\d)", text)
     if m:
         out["settlement"] = -_num(m.group(2)) if m.group(1) else _num(m.group(2))
-    m = re.search(r"\(NEM\)\s*month\s*(\d+)", text)
+    # Monthly NEM bills say "(NEM) month 1"; annual ones "through month 9".
+    m = re.search(r"\(NEM\)\s*month\s*(\d+)", text) or re.search(r"through month\s*(\d+)", text)
     if m:
         out["nem_month"] = int(m.group(1))
-    m = re.search(r"net kWh:\s*(-?[\d,]+)", text)
+    elif "settlement" in out:
+        out["nem_month"] = 12
+    m = re.search(r"net kWh:\s*(-?[\d,]+)", text) or \
+        re.search(r"Total electricity usage this month in kWh\s*(-?[\d,]+)", text)
     if m:
         out["net_kwh"] = _num(m.group(1))
     # Usage table: "<period> <consumption> <net generation> <total>" per TOU
@@ -1613,10 +1617,61 @@ def _parse_sce_bill(text):
             out["import_kwh"] = sum(_num(r[1]) for r in rows)
             out["export_kwh"] = -sum(_num(r[2]) for r in rows)
             out["peak_import_kwh"] = sum(_num(r[1]) for r in rows if r[0].lower() in ("on peak", "mid peak"))
-    m = re.search(r"Base services charge\s+\d+\s*days\s*x\s*\$[\d.]+\s*\$([\d,]+\.\d\d)", text)
+        else:
+            # Annual-NEM layout: separate "<Season> Season - Consumption" and
+            # "- Net Generation" lists of "<period> <kWh>".
+            imp = exp = peak = 0.0
+            found = False
+            for kind, body in re.findall(r"Season[^A-Za-z\n]*(Consumption|Net Generation)\s*\n((?:[A-Za-z ]+peak\s+-?[\d,]+\s*\n)+)",
+                                         block, re.I):
+                for per, kwh in re.findall(r"^([A-Za-z ]+peak)\s+(-?[\d,]+)\s*$", body, re.M | re.I):
+                    found = True
+                    if kind.lower() == "consumption":
+                        imp += _num(kwh)
+                        if per.strip().lower() in ("on peak", "mid peak"):
+                            peak += _num(kwh)
+                    else:
+                        exp -= _num(kwh)
+            if found:
+                out.update(import_kwh=imp, export_kwh=exp, peak_import_kwh=peak)
+    m = re.search(r"Base services charge\s+\d+\s*days\s*x\s*\$[\d.]+\s*\$([\d,]+\.\d\d)", text) or \
+        re.search(r"Basic charge\s+\d+\s*days\s*x\s*\$[\d.]+\s*\$([\d,]+\.\d\d)", text)
     if m:
         out["base_charge"] = _num(m.group(1))
+    out.update(_bill_pdf_rates(text))
     return out
+
+
+def _bill_pdf_rates(text):
+    """rate_scale/rates from a bill PDF's per-kWh lines, matching what
+    _uapi_bill gets from UtilityAPI. Delivery sits under "Energy-Summer" /
+    "Energy-Winter" ("Mid peak 35 kWh x $0.23588"); OCPA generation is
+    "Generation - Mid-Peak - Winter 35 kWh @ 0.32482" (names can wrap).
+    A rate change mid-period gives two lines per period; they're averaged
+    by kWh."""
+    def add(acc, key, kwh, rate):
+        if key:
+            acc.setdefault(key, []).append((abs(kwh), rate))
+
+    deliv, gen = {}, {}
+    for season, body in re.findall(r"Energy-(Summer|Winter)\s*\n((?:[A-Za-z ]+peak\s+-?[\d,]+\s*kWh\s*x\s*\$[\d.]+.*\n?)+)", text):
+        for per, kwh, rate in re.findall(r"^([A-Za-z ]+peak)\s+(-?[\d,]+)\s*kWh\s*x\s*\$([\d.]+)", body, re.M):
+            add(deliv, _tou_key(f"{season} {per}"), _num(kwh), float(rate))
+    for name, kwh, rate in re.findall(r"Generation - ([A-Za-z\-\s]+?)\s*(-?[\d,]+(?:\.\d+)?)\s*kWh\s*@\s*([\d.]+)", text):
+        add(gen, _tou_key(name), _num(kwh), float(rate))
+
+    def avg(acc):
+        out = {}
+        for k, pts in acc.items():
+            w = sum(p[0] for p in pts)
+            out[k] = sum(p[0] * p[1] for p in pts) / w if w else sum(p[1] for p in pts) / len(pts)
+        return out
+    deliv, gen = avg(deliv), avg(gen)
+    row = {"rate_scale": _rate_scale(deliv, gen)}
+    both = {f"{k[0]}:{k[1]}": round(deliv[k] + gen[k], 5) for k in deliv if k in gen}
+    if both:
+        row["rates"] = json.dumps(both)
+    return {k: v for k, v in row.items() if v is not None}
 
 
 def _pdf_text(data):
