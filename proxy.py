@@ -1763,12 +1763,19 @@ def _months_solar(conn, bill):
     d0 = datetime.strptime(bill["period_start"], "%Y-%m-%d").date()
     d1 = datetime.strptime(bill["period_end"], "%Y-%m-%d").date()
     have = dict(conn.execute("SELECT month, solar_kwh FROM solar_months WHERE solar_kwh IS NOT NULL"))
+    tz = _local_tz()
     total, day = 0.0, d0
     while day <= d1:
         key = day.strftime("%Y-%m")
-        if key not in have:
-            return None
         nxt = (day.replace(day=28) + timedelta(days=4)).replace(day=1)
+        if key not in have:
+            # Not on file: pvswatch's own total for that calendar month.
+            m0 = datetime(day.year, day.month, 1, tzinfo=tz).timestamp()
+            m1 = datetime(nxt.year, nxt.month, 1, tzinfo=tz).timestamp()
+            got = _counter_delta(conn, "lifetime_kwh", m0, m1)
+            if got is None:
+                return None
+            have[key] = got
         in_month = (nxt - day.replace(day=1)).days
         span = (min(nxt, d1 + timedelta(days=1)) - day).days
         total += have[key] * span / in_month
@@ -1802,9 +1809,14 @@ def _no_solar_estimate(conn, bill, tz, typical_rates=None):
             return None
         basis = "monthly"
         mid = datetime.fromtimestamp((t0 + t1) / 2, tz).month
-        rate = (typical_rates or {}).get(mid)
+        typical_rates = typical_rates or {}
+        rate = typical_rates.get(mid)
         if rate is None and typical_rates:
-            rate = sum(typical_rates.values()) / len(typical_rates)
+            # No history for that calendar month: average the months pvswatch
+            # has seen in the same TOU season, else all of them.
+            season = next((se["months"] for se in (TOU_PLAN or {}).get("seasons", []) if mid in se["months"]), set())
+            mates = [v for m, v in typical_rates.items() if m in season] or list(typical_rates.values())
+            rate = sum(mates) / len(mates)
     rate = rate or COST_PER_KWH
     home = solar + net
     if home <= 0:
