@@ -1041,22 +1041,40 @@ def _tou_period(ts, plan=None):
     return None
 
 
-def _tou_savings(conn, cutoff, end_ts):
-    """Bill difference over the window: Σ (home load - grid import) × rate.
-    Each reading counts for the time until the next one, capped at two poll
-    intervals so a data gap doesn't get billed."""
+def _tou_savings(conn, cutoff, end_ts, solar_kwh, elapsed_h):
+    """Bill savings under NEM netting with time-of-use rates.
+
+    Every solar kWh offsets grid energy at the rate in effect when it was
+    made (used at home or exported), and the battery adds the spread between
+    when it charges and when it discharges:
+        solar_kwh x production-weighted rate + sum(battery_kw x rate x dt)
+    solar_kwh comes from the lifetime counter (robust). The 5-min readings
+    supply only the timing: they miss data gaps and pv_p goes stale between
+    PVS scans, so their summed energy runs low. The battery term is scaled
+    up by the share of the window the readings cover."""
     rows = conn.execute(
-        "SELECT ts, consumption_kw, net_kw FROM readings WHERE ts > ? AND ts <= ? ORDER BY ts",
+        "SELECT ts, production_kw, battery_kw FROM readings WHERE ts > ? AND ts <= ? ORDER BY ts",
         (cutoff, end_ts)).fetchall()
     cap = 2 * REFRESH_SECS
-    total = 0.0
-    for (ts, cons, net), nxt in zip(rows, rows[1:]):
-        dt = min(nxt[0] - ts, cap)
+    pv_e = pv_cost = bat_cost = covered = 0.0
+    for (ts, pv, bat), nxt in zip(rows, rows[1:]):
         per = _tou_period(ts)
-        if per is None or cons is None or net is None:
+        if per is None:
             continue
-        total += (cons - net) * dt / 3600 * per[1]
-    return total
+        dt = min(nxt[0] - ts, cap) / 3600
+        covered += dt
+        rate = per[1]
+        if pv and pv > 0:
+            pv_e += pv * dt
+            pv_cost += pv * dt * rate
+        if bat:
+            bat_cost += bat * dt * rate  # + discharging (saves), - charging (costs)
+    if pv_e > 0.01:
+        pv_rate = pv_cost / pv_e
+    else:  # no production in the readings: daytime average
+        pv_rate = _tou_period(end_ts)[1] if _tou_period(end_ts) else COST_PER_KWH
+    scale = elapsed_h / covered if covered > 0 else 0
+    return solar_kwh * pv_rate + bat_cost * min(scale, 3)
 
 
 # ── SunVault grid/backup state (midstate) ────────────────────────────
@@ -1702,7 +1720,7 @@ def history():
             grid_import_kwh = max(0, net_kwh)
             grid_export_kwh = max(0, -net_kwh)
             avoided_kwh = min(solar_kwh, home_kwh)  # solar that offset grid use
-            savings_dollars = (_tou_savings(conn, cutoff, end_ts) if TOU_PLAN
+            savings_dollars = (_tou_savings(conn, cutoff, end_ts, solar_kwh, elapsed_h) if TOU_PLAN
                                else avoided_kwh * COST_PER_KWH)
             co2_lbs = solar_kwh * CO2_LBS_PER_KWH
             independence_pct = (solar_kwh / home_kwh * 100) if home_kwh > 0.01 else None
