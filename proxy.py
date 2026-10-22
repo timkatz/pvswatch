@@ -1943,10 +1943,15 @@ def sunvault_state():
     except sqlite3.Error:
         events = []
     v = _midstate["value"]
+    # "since" is only meaningful if we saw the change happen. The first
+    # reading after the watch started (prev NULL) just marks when we began.
+    since = _midstate["since"]
+    if not events or events[0]["value"] != v or events[0]["prev"] is None:
+        since = None
     return Response(json.dumps({
         "midstate": v,
         "kind": _midstate_kind(v),
-        "since": _midstate["since"],
+        "since": since,
         "checked": _midstate["checked"],
         "events": events,
     }), mimetype="application/json")

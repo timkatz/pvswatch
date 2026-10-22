@@ -1447,7 +1447,12 @@ function renderBattery() {
     flowV.innerHTML = p.value + '<span class="unit"> ' + p.unit + '</span>';
     if (s.batteryKw < -0.01) {
       flowL.textContent = '↓ Charging';
-      flowS.textContent = 'storing solar';
+      // Solar left over after the house's own use is what can reach the
+      // battery; the rest of the charge comes from the grid.
+      const surplus = Math.max(0, (s.prodKw || 0) - (s.consKw || 0));
+      const charge = -s.batteryKw;
+      flowS.textContent = surplus >= charge * 0.9 ? 'storing solar'
+        : surplus > 0.05 ? 'from solar + grid' : 'from grid';
       flowV.style.color = 'var(--green)';
     } else if (s.batteryKw > 0.01) {
       flowL.textContent = '↑ Discharging';

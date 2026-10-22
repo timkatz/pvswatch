@@ -130,3 +130,14 @@ test('hovering an outage band shows its window', async ({ page }) => {
   await page.mouse.move(0, 0);
   await expect(page.locator('.outage-tip')).toBeHidden();
 });
+
+test('battery charge source label: solar vs grid', async ({ page }) => {
+  await page.waitForFunction(() => typeof liveSnapshot !== 'undefined' && liveSnapshot);
+  const label = (prod, cons, bat) => page.evaluate(([p, c, b]) => {
+    Object.assign(liveSnapshot, { prodKw: p, consKw: c, batteryKw: b }); renderBattery();
+    return document.getElementById('bat_flowSub').textContent;
+  }, [prod, cons, bat]);
+  expect(await label(5, 1, -2)).toBe('storing solar');
+  expect(await label(0.5, 1.2, -0.8)).toBe('from grid');
+  expect(await label(1.5, 1.0, -0.8)).toBe('from solar + grid');
+});
