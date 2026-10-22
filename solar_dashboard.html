@@ -2276,6 +2276,9 @@ function finDelta(now, before) {
 function finNoteIndex(rows, date) {
   let idx = rows.findIndex(r => r.start <= date && date <= r.end);
   if (idx < 0) idx = rows.findIndex(r => r.end >= date);
+  // After the last bill's period (e.g. a change since the latest bill):
+  // show it on the newest row.
+  if (idx < 0 && rows.length && date > rows[rows.length - 1].end) idx = rows.length - 1;
   return idx;
 }
 
