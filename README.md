@@ -46,6 +46,7 @@ curl -u "ssm_owner:LAST5" http://<PVS_IP>/cgi-bin/dl_cgi/devices/list
 - **SunVault battery section** — state of charge, charge/discharge power, backup-time-remaining
 - **Per-panel inverter status** — click a panel for a drill-down chart of its production over day/week/month
 - **Savings card** — dollars saved, lbs CO₂ avoided, trees-equivalent, miles-not-driven, gallons-not-used (configurable rate / emissions factor)
+- **Net Cost & Savings card** — your utility bills plus a fixed monthly solar payment, next to an estimate of what the house would have cost with no solar. Answers "is solar actually saving me money?" at a glance, with month / quarter / year / NEM-year views, change vs. the previous period and vs. last year, and dated notes on the chart. Bills come from uploaded PDFs (SCE layout parsed automatically), manual entry, or a [UtilityAPI](https://utilityapi.com) sync
 - **Nighttime detection** — when DC powerline comms drop after dark, panels report `STATE=error` even though nothing is wrong; the dashboard recognizes this pattern and shows "🌙 Nighttime idle" instead of a red banner
 - **Optional Tailscale sidecar** — secure HTTPS access from anywhere on your tailnet without opening a router port
 
@@ -163,6 +164,10 @@ All settings come from `.env`. Required fields are marked.
 | `TOU_RATES` | — | Optional time-of-use plan as JSON (see `.env.example`). Makes "Cost saved" the real bill difference by time of day; overrides `COST_PER_KWH` |
 | `ALERT_STALE_MINS` | `30` | Minutes without fresh PVS data before alerting |
 | `MIDSTATE_POLL_SECS` | `60` | How often to check SunVault's grid/backup state; alerts on every change (`0` = off) |
+| `SOLAR_MONTHLY_COST` | `0` | Fixed monthly solar payment (lease / PPA / loan), added to each bill on the Net Cost card |
+| `SOLAR_COST_START` | — | First month (`YYYY-MM`) that payment applies to; blank = every bill |
+| `UTILITY_API_TOKEN` | — | Optional [UtilityAPI](https://utilityapi.com) API token. Syncs utility bills and 15-min meter data daily |
+| `UTILITY_API_SYNC_HOURS` | `24` | UtilityAPI sync interval (`0` = only via `POST /utilityapi/sync`) |
 | `ALERT_BATTERY_PCT` | `20` | Alert when usable battery charge drops below this % (`0` = off); recovery alert at +5 |
 | `OUTAGE_GAP_MINS` | `20` | A gap in history longer than this counts as a "PVS offline" outage |
 | `UPS_LOG_DIR` | — | Host directory with `apcupsd.events` (e.g. `/var/log`) for grid power outage tracking |
@@ -183,14 +188,22 @@ The Flask app exposes these JSON endpoints — useful for Home Assistant, Grafan
 | `GET /history/panels?range=24h` | Per-panel raw readings for the range (large response) |
 | `GET /panel/<serial>/history?range=24h` | Per-panel drilldown: bucketed kWh, latest snapshot, total — used by the dashboard panel modal |
 | `GET /outages?range=24h` | PVS-offline (history gaps) and grid power (UPS) outages in the window, newest first, plus per-kind count/total. PVS events carry a `cause` from the PVS uptime: `pvs_restart` (rebooted / lost power) or `network` (stayed up, so WiFi/network); `null` for history recorded before uptime tracking |
+| `GET /finance?group=month` | Net cost report: bills grouped by `month`, `quarter`, `year` or `nemyear`, each with utility cost, solar payment, no-solar estimate, savings and change vs. the previous period / last year, plus a 12-bill headline and dated notes. `spread=0` shows NEM settle-ups as billed instead of spread over their NEM year |
+| `GET /bills`, `POST /bills`, `DELETE /bills/<date>` | List / add / delete utility bills. POST takes bill PDFs (multipart `file=`) or JSON |
+| `POST /usage` | Import a Green Button usage download (XML or CSV) |
+| `POST /annotations`, `DELETE /annotations` | Dated notes shown on the Net Cost chart |
+| `POST /utilityapi/sync` | Run a UtilityAPI sync now |
 | `GET /health` | Cache freshness, history row count, and `history_earliest` timestamp |
 
 ## Database schema
 
-SQLite, two tables, schema created on first start:
+SQLite, schema created on first start:
 
 - **`readings`** — one row per poll: `production_kw`, `consumption_kw`, `net_kw`, `lifetime_kwh`, voltage / frequency / power-factor, panel health counts, and battery columns (`battery_kw`, `battery_soc`, `backup_min`, `battery_lifetime_kwh`, `home_lifetime_kwh`, `grid_lifetime_kwh`)
 - **`panel_readings`** — one row per inverter per poll: `serial`, `model`, `state`, `watts`, DC/AC voltage, current, temperature, `lifetime_kwh`
+- **`bills`** — one row per utility bill (`bill_date` key): billing period, `amount`, NEM `settlement` included in it, net / import / export kWh, fixed `base_charge`, `source`
+- **`utility_intervals`** — meter readings from Green Button or UtilityAPI: `ts`, `secs`, `delivered_kwh`, `received_kwh`
+- **`annotations`** — dated notes (`date`, `label`, `detail`)
 
 Schema migrations are idempotent `ALTER TABLE` calls in `_init_db()` — safe to run on existing databases.
 

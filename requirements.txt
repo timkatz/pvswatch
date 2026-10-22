@@ -1,3 +1,4 @@
 # Pinned to compatible major.minor; bump when intentionally upgrading.
 flask~=3.1
 requests~=2.33
+pypdf~=6.21

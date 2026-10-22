@@ -141,3 +141,56 @@ test('battery charge source label: solar vs grid', async ({ page }) => {
   expect(await label(0.5, 1.2, -0.8)).toBe('from grid');
   expect(await label(1.5, 1.0, -0.8)).toBe('from solar + grid');
 });
+
+test('Net Cost card: headline, groups, settle-up spread and notes', async ({ page, request }) => {
+  const fin = await (await request.get('/finance?group=month')).json();
+  expect(fin.bills.length).toBeGreaterThanOrEqual(14);
+  expect(fin.solar_monthly_cost).toBe(150);
+  // The newest mock bill sits inside seeded history, so it gets an estimate.
+  expect(fin.rows[fin.rows.length - 1].no_solar).not.toBeNull();
+  // Spreading moves the settle-up around but keeps the total.
+  const cash = fin.bills.reduce((s, b) => s + b.amount, 0);
+  const accrued = fin.bills.reduce((s, b) => s + b.accrued, 0);
+  expect(Math.abs(cash - accrued)).toBeLessThan(0.01);
+
+  await expect(page.locator('#finHeadline .big')).toContainText(/Solar is (saving|costing)/);
+  await expect(page.locator('#finTable')).toContainText('Billing switched to monthly');
+  await expect(page.locator('#finTable .mark')).toHaveCount(1);  // the one settle-up
+
+  const nem = await (await request.get('/finance?group=nemyear')).json();
+  await page.locator('#finGroups .chart-tab[data-group="nemyear"]').click();
+  await expect(page.locator('#finTable tbody tr:not(.note-row)')).toHaveCount(nem.rows.length);
+  await expect(page.locator('#finTable tbody tr').first()).toContainText(/[A-Z][a-z]{2} \d\d–[A-Z][a-z]{2} \d\d/);
+});
+
+test('Net Cost card: add, edit and delete a bill by hand', async ({ page }) => {
+  await page.waitForFunction(() => typeof finData !== 'undefined' && finData);
+  await page.locator('#finAddBill').click();
+  await page.locator('#fm_form [name="bill_date"]').fill('2001-02-03');
+  await page.locator('#fm_form [name="period_start"]').fill('2001-01-01');
+  await page.locator('#fm_form [name="period_end"]').fill('2001-01-31');
+  await page.locator('#fm_form [name="amount"]').fill('42.5');
+  await page.locator('.fin-form-actions .primary').click();
+  const row = page.locator('#finTable tr[data-bill="2001-02-03"]');
+  await expect(row).toContainText('Jan 2001');
+  await expect(row).toContainText('$43');
+
+  await row.click();
+  await page.locator('#fm_form [name="amount"]').fill('50');
+  await page.locator('.fin-form-actions .primary').click();
+  await expect(row).toContainText('$50');
+
+  await row.click();
+  await page.locator('#fm_delete').click();
+  await expect(page.locator('#fm_delete')).toHaveText('Tap again to delete');
+  await page.locator('#fm_delete').click();
+  await expect(row).toHaveCount(0);
+});
+
+test('cross-site writes are refused', async ({ request }) => {
+  const res = await request.post('/annotations', {
+    headers: { 'Sec-Fetch-Site': 'cross-site' },
+    data: { date: '2001-01-01', label: 'x' },
+  });
+  expect(res.status()).toBe(403);
+});

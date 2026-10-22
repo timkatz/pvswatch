@@ -27,6 +27,10 @@ Configuration is read from environment variables (set via .env file):
   ALERT_STALE_MINS - Minutes without fresh data before alerting (default: 30)
   MIDSTATE_POLL_SECS - How often to check SunVault's grid/backup state (default: 60, 0 = off)
   ALERT_BATTERY_PCT - Alert when usable battery charge drops below this % (default: 20, 0 = off)
+  SOLAR_MONTHLY_COST - Fixed monthly solar payment (lease/PPA/loan) for the Net Cost card (default: 0)
+  SOLAR_COST_START - First month (YYYY-MM) that payment applies to (optional)
+  UTILITY_API_TOKEN - utilityapi.com API token; syncs utility bills + meter data (optional)
+  UTILITY_API_SYNC_HOURS - How often to sync from UtilityAPI (default: 24, 0 = only on demand)
   LOG_LEVEL      - Python log level (default: INFO)
 """
 
@@ -97,6 +101,16 @@ COST_PER_KWH = float(os.environ.get("COST_PER_KWH", "0.30"))
 # "days" is "weekday", "weekend" or omitted (every day). Holidays aren't modeled.
 TOU_RATES_RAW = os.environ.get("TOU_RATES", "").strip()
 CO2_LBS_PER_KWH = float(os.environ.get("CO2_LBS_PER_KWH", "0.85"))
+# Fixed monthly solar payment (lease/PPA/loan), added to each utility bill
+# in /finance. SOLAR_COST_START (YYYY-MM) limits it to bills from then on.
+SOLAR_MONTHLY_COST = float(os.environ.get("SOLAR_MONTHLY_COST", "0") or 0)
+SOLAR_COST_START = os.environ.get("SOLAR_COST_START", "").strip()
+BILLS_DIR = os.path.join(os.path.dirname(DB_PATH), "bills")
+# UtilityAPI (utilityapi.com) pulls bills and 15-min meter data from the
+# utility. With a token set, pvswatch syncs every UTILITY_API_SYNC_HOURS.
+UTILITY_API_TOKEN = os.environ.get("UTILITY_API_TOKEN", "").strip()
+UTILITY_API_SYNC_HOURS = float(os.environ.get("UTILITY_API_SYNC_HOURS", "24") or 0)
+UTILITY_API_BASE = "https://utilityapi.com/api/v2/"
 
 # Logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -122,6 +136,7 @@ def _json_dumps(obj, **kw):
 
 
 app = Flask(__name__, static_folder=".")
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # bill PDF / Green Button uploads
 
 
 class _SafeJSONProvider(app.json_provider_class):
@@ -181,6 +196,39 @@ def _init_db():
         value INTEGER,
         prev INTEGER
     )""")
+    # Utility bills, one row per bill (keyed by the date it was prepared).
+    # settlement = the NEM 12-month settlement charges included in amount.
+    c.execute("""CREATE TABLE IF NOT EXISTS bills (
+        bill_date TEXT PRIMARY KEY,
+        period_start TEXT,
+        period_end TEXT,
+        amount REAL,
+        settlement REAL,
+        nem_month INTEGER,
+        net_kwh REAL,
+        import_kwh REAL,
+        export_kwh REAL,
+        peak_import_kwh REAL,
+        base_charge REAL,
+        source TEXT,
+        file TEXT,
+        notes TEXT,
+        updated REAL
+    )""")
+    # Dated notes shown on the Net Cost chart (e.g. a billing plan change).
+    c.execute("""CREATE TABLE IF NOT EXISTS annotations (
+        date TEXT,
+        label TEXT,
+        detail TEXT,
+        PRIMARY KEY (date, label)
+    )""")
+    # Meter intervals from the utility's Green Button download.
+    c.execute("""CREATE TABLE IF NOT EXISTS utility_intervals (
+        ts REAL PRIMARY KEY,
+        secs INTEGER,
+        delivered_kwh REAL,
+        received_kwh REAL
+    )""")
     # Idempotent migrations.
     # battery_*  added 2026-04-25 — sign: battery_kw > 0 = discharging.
     # home_lifetime_kwh / grid_lifetime_kwh added 2026-04-25 — cumulative
@@ -196,9 +244,8 @@ def _init_db():
         # pvs_uptime_s added 2026-10-19 — PVS dl_uptime (seconds since boot).
         # Lets /outages tell a PVS restart from a WiFi/network gap.
         ("pvs_uptime_s", "REAL"),
-        # midstate added 2026-10-21 — livedata midstate (Hub+/MIDC state).
-        # 2 = SunVault thinks the grid is down (the SunStrong app's outage
-        # banner); 0/1 seen while grid-connected.
+        # midstate added 2026-10-21 — livedata midstate (Hub+/MID state).
+        # 2 = on grid; see _midstate_kind.
         ("midstate", "INTEGER"),
     ):
         try:
@@ -1276,7 +1323,7 @@ def _seed_mock_history():
     # test run) over the committed baseline. Both are gated by FIXTURES_DIR.
     for name in ("history_seed.live.sqlite", "history_seed.sqlite"):
         candidate = os.path.join(FIXTURES_DIR, name)
-        if os.path.exists(candidate):
+        if os.path.exists(candidate) and _fixture_has_readings(candidate):
             logger.info("Seeding from fixture %s", candidate)
             conn.close()
             _seed_from_fixture(candidate)
@@ -1358,6 +1405,20 @@ def _seed_mock_history():
                 total_rows, len(panel_rows), DAYS)
 
 
+def _fixture_has_readings(path):
+    """False for an empty or unreadable fixture, so seeding falls through to
+    the next one instead of starting with no history."""
+    try:
+        src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        n = src.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+        src.close()
+    except sqlite3.Error:
+        return False
+    if not n:
+        logger.warning("Fixture %s has no readings; trying the next one", path)
+    return bool(n)
+
+
 def _seed_from_fixture(fixture_path):
     """Copy readings + panel_readings from the fixture into the runtime DB,
     adding time.time() to each ts. The fixture stores normalized timestamps
@@ -1430,6 +1491,36 @@ def _seed_mock_outages():
         conn.close()
 
 
+def _seed_mock_bills():
+    """Synthetic bills for the Net Cost card in mock mode: 14 monthly bills,
+    one NEM settlement, and a current bill whose period sits inside the
+    seeded history so the no-solar estimate has data. Plus one note."""
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        if conn.execute("SELECT COUNT(*) FROM bills").fetchone()[0] == 0:
+            lo, hi = conn.execute("SELECT MIN(ts), MAX(ts) FROM readings").fetchone()
+            hi = hi or time.time()
+            lo = lo or hi - 5 * 86400
+            day = lambda ts: datetime.fromtimestamp(ts, _local_tz()).strftime("%Y-%m-%d")
+            start, end = lo + 86400, hi - 86400
+            if end - start < 2 * 86400:
+                start = end - 2 * 86400
+            rows = [(day(hi), day(start), day(end), 120.0, None, 150.0, 20.0)]
+            for i in range(1, 14):
+                pe = start - 86400 - (i - 1) * 30 * 86400
+                amount = 40.0 + (i * 17) % 50
+                settle = 400.0 if i == 4 else None
+                rows.append((day(pe + 4 * 86400), day(pe - 29 * 86400), day(pe),
+                             amount + (settle or 0), settle, 100.0 + (i * 37) % 300, 20.0))
+            conn.executemany("INSERT INTO bills (bill_date, period_start, period_end, amount, settlement, "
+                             "net_kwh, base_charge, source, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'mock', ?)",
+                             [r + (time.time(),) for r in rows])
+            conn.execute("INSERT OR IGNORE INTO annotations (date, label, detail) VALUES (?, ?, ?)",
+                         (day(start), "Billing switched to monthly", "Mock note"))
+            conn.commit()
+        conn.close()
+
+
 def _background_refresh_mock():
     """Mock equivalent of _background_refresh."""
     logger.info("Starting mock refresh loop (every %ds)", REFRESH_SECS)
@@ -1437,6 +1528,615 @@ def _background_refresh_mock():
     while True:
         time.sleep(REFRESH_SECS)
         _refresh_mock()
+
+
+# ── Bills & net cost ─────────────────────────────────────────────────
+# One row per utility bill (uploaded PDF, Green Button, or manual entry).
+# /finance rolls bills up by month / quarter / year / NEM year, adds the
+# fixed solar payment, and estimates what the house would have cost with
+# no solar, so "is solar saving me money?" has a number behind it.
+BILL_COLS = ("bill_date", "period_start", "period_end", "amount", "settlement",
+             "nem_month", "net_kwh", "import_kwh", "export_kwh",
+             "peak_import_kwh", "base_charge", "source", "file", "notes")
+_DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
+
+
+def _local_tz():
+    if TOU_PLAN:
+        return TOU_PLAN["_tz"]
+    from zoneinfo import ZoneInfo
+    return ZoneInfo("UTC")
+
+
+def _us_date(s):
+    """MM/DD/YY or MM/DD/YYYY -> YYYY-MM-DD."""
+    m, d, y = (int(x) for x in s.split("/"))
+    return f"{y + 2000 if y < 100 else y:04d}-{m:02d}-{d:02d}"
+
+
+def _num(s):
+    return float(s.replace(",", "").replace("$", ""))
+
+
+def _parse_sce_bill(text):
+    """Pull the fields /finance needs out of an SCE bill PDF's text.
+    Anything not found is left out; the upload keeps what it can."""
+    out = {}
+    date = r"(\d\d?/\d\d?/\d\d(?:\d\d)?)"
+    m = re.search(r"Date bill prepared\s*" + date, text)
+    if m:
+        out["bill_date"] = _us_date(m.group(1))
+    m = re.search(r"Your new charges\s*(-?)\s*\$\s*([\d,]+\.\d\d)", text)
+    if m:
+        out["amount"] = -_num(m.group(2)) if m.group(1) else _num(m.group(2))
+    m = re.search(r"Billing period:?\s*" + date + r"\s*to\s*" + date, text)
+    if m:
+        out["period_start"], out["period_end"] = _us_date(m.group(1)), _us_date(m.group(2))
+    m = re.search(r"settlement charges are\s*(-?)\$\s*([\d,]+\.\d\d)", text)
+    if m:
+        out["settlement"] = -_num(m.group(2)) if m.group(1) else _num(m.group(2))
+    m = re.search(r"\(NEM\)\s*month\s*(\d+)", text)
+    if m:
+        out["nem_month"] = int(m.group(1))
+    m = re.search(r"net kWh:\s*(-?[\d,]+)", text)
+    if m:
+        out["net_kwh"] = _num(m.group(1))
+    # Usage table: "<period> <consumption> <net generation> <total>" per TOU
+    # period. On/mid peak are both 4-9 PM on TOU-D-PRIME.
+    usage = text.split("Your past and current electricity usage", 1)
+    if len(usage) == 2:
+        block = usage[1].split("Details of your new charges", 1)[0]
+        rows = re.findall(r"^(On peak|Mid peak|Off peak|Super off peak)\s+(-?[\d,]+)\s+(-?[\d,]+)\s+(-?[\d,]+)\s*$",
+                          block, re.M | re.I)
+        if rows:
+            out["import_kwh"] = sum(_num(r[1]) for r in rows)
+            out["export_kwh"] = -sum(_num(r[2]) for r in rows)
+            out["peak_import_kwh"] = sum(_num(r[1]) for r in rows if r[0].lower() in ("on peak", "mid peak"))
+    m = re.search(r"Base services charge\s+\d+\s*days\s*x\s*\$[\d.]+\s*\$([\d,]+\.\d\d)", text)
+    if m:
+        out["base_charge"] = _num(m.group(1))
+    return out
+
+
+def _pdf_text(data):
+    import io
+    from pypdf import PdfReader
+    return "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages)
+
+
+def _clean_bill(b):
+    """Validate/coerce one bill dict from JSON. Returns (bill, error)."""
+    if not isinstance(b, dict) or not _DATE_RE.match(str(b.get("bill_date", ""))):
+        return None, "bill_date (YYYY-MM-DD) is required"
+    out = {"bill_date": b["bill_date"]}
+    for k in BILL_COLS[1:]:
+        v = b.get(k)
+        if v in (None, ""):
+            out[k] = None
+        elif k in ("period_start", "period_end"):
+            if not _DATE_RE.match(str(v)):
+                return None, f"{k} must be YYYY-MM-DD"
+            out[k] = v
+        elif k in ("source", "file", "notes"):
+            out[k] = str(v)[:500]
+        else:
+            try:
+                out[k] = int(v) if k == "nem_month" else float(v)
+            except (TypeError, ValueError):
+                return None, f"{k} must be a number"
+    return out, None
+
+
+def _upsert_bill(conn, bill, replace=False):
+    """Insert or update a bill. By default fields left None keep their stored
+    value (so a re-upload doesn't wipe notes); replace=True overwrites all."""
+    cols = [k for k in BILL_COLS if k in bill]
+    sets = ", ".join(f"{k}=excluded.{k}" if replace else f"{k}=COALESCE(excluded.{k}, {k})"
+                     for k in cols if k != "bill_date")
+    conn.execute(f"INSERT INTO bills ({', '.join(cols)}, updated) VALUES ({', '.join('?' * len(cols))}, ?) "
+                 f"ON CONFLICT(bill_date) DO UPDATE SET {sets}, updated=excluded.updated",
+                 [bill[k] for k in cols] + [time.time()])
+
+
+def _parse_green_button(data):
+    """Interval readings from a Green Button download: ESPI XML (the
+    standard) or the utility's CSV. Returns [(ts, secs, delivered, received)]."""
+    text = data.decode("utf-8-sig", errors="replace")
+    out = []
+    if text.lstrip().startswith("<"):
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(text)
+        flow, mult = 1, 0  # ReadingType applies to the IntervalBlocks after it
+        for el in root.iter():
+            tag = el.tag.rsplit("}", 1)[-1]
+            if tag == "ReadingType":
+                kids = {c.tag.rsplit("}", 1)[-1]: (c.text or "").strip() for c in el}
+                flow = int(kids.get("flowDirection") or 1)
+                mult = int(kids.get("powerOfTenMultiplier") or 0)
+                uom = int(kids.get("uom") or 72)
+                if uom == 72:  # Wh
+                    mult -= 3
+            elif tag == "IntervalReading":
+                kids = {c.tag.rsplit("}", 1)[-1]: c for c in el}
+                tp = kids.get("timePeriod")
+                if tp is None or "value" not in kids:
+                    continue
+                t = {c.tag.rsplit("}", 1)[-1]: c.text for c in tp}
+                kwh = float(kids["value"].text) * 10 ** mult
+                received = flow == 19 or kwh < 0
+                out.append((float(t["start"]), int(t["duration"]),
+                            0.0 if received else kwh, abs(kwh) if received else 0.0))
+        return out
+    # CSV: "YYYY-MM-DD HH:MM[:SS] to YYYY-MM-DD HH:MM[:SS]","<kWh>" rows,
+    # in sections whose headers say whether they're delivered or received.
+    tz = _local_tz()
+    stamp = r"(\d{4}-\d\d-\d\d[ T]\d\d:\d\d(?::\d\d)?)"
+    row = re.compile(stamp + r"\s*(?:to|-)\s*" + stamp + r'"?\s*,\s*"?(-?[\d.]+)')
+    received = False
+    for line in text.splitlines():
+        m = row.search(line)
+        if not m:
+            low = line.lower()
+            if "received" in low or "generat" in low or "export" in low:
+                received = True
+            elif "delivered" in low or "consum" in low:
+                received = False
+            continue
+        a, b = (datetime.fromisoformat(x.replace(" ", "T")).replace(tzinfo=tz).timestamp() for x in m.group(1, 2))
+        kwh = float(m.group(3))
+        rec = received or kwh < 0
+        out.append((a, int(b - a), 0.0 if rec else kwh, abs(kwh) if rec else 0.0))
+    return out
+
+
+def _period_bounds(bill, tz):
+    t0 = datetime.strptime(bill["period_start"], "%Y-%m-%d").replace(tzinfo=tz).timestamp()
+    t1 = datetime.strptime(bill["period_end"], "%Y-%m-%d").replace(tzinfo=tz).timestamp() + 86400
+    return t0, t1
+
+
+def _counter_delta(conn, col, t0, t1, slack=36 * 3600):
+    """A lifetime counter's growth over [t0, t1), scaled up when the first or
+    last reading is a little inside the window. None without readings near
+    both ends."""
+    a = conn.execute(f"SELECT ts, {col} FROM readings WHERE ts >= ? AND ts < ? AND {col} IS NOT NULL "
+                     "ORDER BY ts LIMIT 1", (t0, t0 + slack)).fetchone()
+    b = conn.execute(f"SELECT ts, {col} FROM readings WHERE ts > ? AND ts <= ? AND {col} IS NOT NULL "
+                     "ORDER BY ts DESC LIMIT 1", (t1 - slack, t1)).fetchone()
+    if not a or not b or b[0] - a[0] < (t1 - t0) / 2:
+        return None
+    return (b[1] - a[1]) * (t1 - t0) / (b[0] - a[0])
+
+
+def _interval_net(conn, t0, t1, tz):
+    """(net, delivered, received, delivered 4-9 PM) kWh from utility meter
+    intervals if they cover at least 90% of the window."""
+    rows = conn.execute("SELECT ts, secs, delivered_kwh, received_kwh FROM utility_intervals "
+                        "WHERE ts >= ? AND ts < ?", (t0, t1)).fetchall()
+    if sum(r[1] for r in rows) < 0.9 * (t1 - t0):
+        return None
+    d = sum(r[2] for r in rows)
+    rcv = sum(r[3] for r in rows)
+    peak = sum(r[2] for r in rows if 16 <= datetime.fromtimestamp(r[0], tz).hour < 21)
+    return d - rcv, d, rcv, peak
+
+
+def _no_solar_estimate(conn, bill, tz):
+    """What a bill period would have cost with no solar. Home use = solar
+    made (inverter lifetime counter) + net kWh from the grid, priced at the
+    TOU rate weighted by when the home used power, plus the bill's fixed
+    base charge, which a no-solar home pays too. None without pvswatch data
+    covering the period. Battery losses count as home use, so this runs a
+    little high."""
+    if not bill.get("period_start") or not bill.get("period_end"):
+        return None
+    t0, t1 = _period_bounds(bill, tz)
+    solar = _counter_delta(conn, "lifetime_kwh", t0, t1)
+    net = bill.get("net_kwh")
+    if solar is None or net is None:
+        return None
+    home = solar + net
+    if home <= 0:
+        return None
+    e = cost = 0.0
+    rows = conn.execute("SELECT ts, consumption_kw FROM readings WHERE ts >= ? AND ts < ? ORDER BY ts",
+                        (t0, t1)).fetchall()
+    for (ts, kw), nxt in zip(rows, rows[1:]):
+        if not kw or kw <= 0:
+            continue
+        dt = min(nxt[0] - ts, 2 * REFRESH_SECS) / 3600
+        per = _tou_period(ts)
+        e += kw * dt
+        cost += kw * dt * (per[1] if per else COST_PER_KWH)
+    rate = cost / e if e > 0 else COST_PER_KWH
+    return {"solar_kwh": solar, "home_kwh": home, "rate": rate,
+            "cost": home * rate + (bill.get("base_charge") or 0)}
+
+
+def _spread_settlements(bills):
+    """Under annual NEM the year's energy charges land on one settlement
+    bill. Give each bill its share ("accrued") so months compare fairly:
+    a settlement is split over the bills of its NEM year by net kWh used
+    (equal shares when kWh are missing)."""
+    for b in bills:
+        b["accrued"] = b["amount"] - (b.get("settlement") or 0)
+    prev = -1
+    for i, s in enumerate(bills):
+        if not s.get("settlement"):
+            continue
+        # The NEM year: bills since the previous settlement, at most 12 and
+        # all ending within a year before this one.
+        cutoff = str(int(s["period_end"][:4]) - 1) + s["period_end"][4:]
+        group = [b for b in bills[max(prev + 1, i - 11):i + 1] if b["period_end"] > cutoff]
+        kwh = [b.get("net_kwh") for b in group]
+        if None in kwh or sum(kwh) <= 0:
+            kwh = [1.0] * len(group)
+        for b, w in zip(group, kwh):
+            b["accrued"] += s["settlement"] * w / sum(kwh)
+        prev = i
+
+
+def _group_key(period_end, group, nem_end):
+    y, m = int(period_end[:4]), int(period_end[5:7])
+    if group == "quarter":
+        return f"{y}-Q{(m - 1) // 3 + 1}", (y, (m - 1) // 3)
+    if group == "year":
+        return str(y), (y,)
+    if group == "nemyear":
+        ny = y if m <= nem_end else y + 1
+        return f"NEM {ny}", (ny,)
+    return f"{y}-{m:02d}", (y, m)
+
+
+def _finance(group="month", spread=True):
+    tz = _local_tz()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    bills = [dict(r) for r in conn.execute(
+        "SELECT * FROM bills WHERE amount IS NOT NULL ORDER BY COALESCE(period_end, bill_date)")]
+    notes = [dict(r) for r in conn.execute("SELECT date, label, detail FROM annotations ORDER BY date")]
+    for b in bills:
+        b["period_end"] = b["period_end"] or b["bill_date"]
+        if b.get("period_start"):
+            iv = _interval_net(conn, *_period_bounds(b, tz), tz)
+            if iv:
+                for k, v in zip(("net_kwh", "import_kwh", "export_kwh", "peak_import_kwh"), iv):
+                    if b[k] is None:
+                        b[k] = round(v, 1)
+        b["no_solar"] = _no_solar_estimate(conn, b, tz)
+        b["solar_payment"] = SOLAR_MONTHLY_COST if (not SOLAR_COST_START or b["period_end"][:7] >= SOLAR_COST_START) else 0.0
+    conn.close()
+    _spread_settlements(bills)
+    sett = [b for b in bills if b.get("settlement")]
+    nem_end = int(sett[-1]["period_end"][5:7]) if sett else 12
+
+    rows, by_key = [], {}
+    for b in bills:
+        key, sort = _group_key(b["period_end"], group, nem_end)
+        r = by_key.get(key)
+        if r is None:
+            r = by_key[key] = {"key": key, "sort": sort, "bills": [], "sce_cash": 0.0, "sce": 0.0,
+                               "solar_payment": 0.0, "no_solar": 0.0, "no_solar_bills": 0,
+                               "paid_with_data": 0.0, "net_kwh": None, "import_kwh": None,
+                               "export_kwh": None, "peak_import_kwh": None, "settlement": 0.0,
+                               "start": b.get("period_start") or b["bill_date"], "end": b["period_end"]}
+            rows.append(r)
+        sce = b["accrued"] if spread else b["amount"]
+        r["bills"].append(b["bill_date"])
+        r["sce_cash"] += b["amount"]
+        r["sce"] += sce
+        r["solar_payment"] += b["solar_payment"]
+        r["settlement"] += b.get("settlement") or 0
+        r["end"] = b["period_end"]
+        for k in ("net_kwh", "import_kwh", "export_kwh", "peak_import_kwh"):
+            if b.get(k) is not None:
+                r[k] = (r[k] or 0) + b[k]
+        if b["no_solar"]:
+            r["no_solar"] += b["no_solar"]["cost"]
+            r["no_solar_bills"] += 1
+            r["paid_with_data"] += sce + b["solar_payment"]
+    for i, r in enumerate(rows):
+        r["total"] = r["sce"] + r["solar_payment"]
+        n = len(r["bills"])
+        r["coverage"] = "full" if r["no_solar_bills"] == n else "partial" if r["no_solar_bills"] else "none"
+        r["saved"] = r["no_solar"] - r["paid_with_data"] if r["no_solar_bills"] else None
+        if not r["no_solar_bills"]:
+            r["no_solar"] = None
+        prev = rows[i - 1] if i else None
+        ly = by_key.get(_shift_year(r["key"], group))
+        r["prev_total"] = prev["total"] if prev else None
+        r["yoy_total"] = ly["total"] if ly else None
+        r["prev_saved"] = prev["saved"] if prev else None
+        r["yoy_saved"] = ly["saved"] if ly else None
+
+    # Headline over the last 12 billed months.
+    last12 = bills[-12:]
+    prior12 = bills[-24:-12]
+    with_data = [b for b in last12 if b["no_solar"]]
+    sce_of = (lambda b: b["accrued"] if spread else b["amount"])
+    paid = sum(sce_of(b) + b["solar_payment"] for b in with_data)
+    est = sum(b["no_solar"]["cost"] for b in with_data)
+    headline = {
+        "months": len(with_data),
+        "paid": paid, "no_solar": est, "saved": est - paid,
+        "per_month": (est - paid) / len(with_data) if with_data else None,
+        "sce": sum(sce_of(b) for b in with_data),
+        "solar_payment": sum(b["solar_payment"] for b in with_data),
+        "net_cost_12": sum(sce_of(b) + b["solar_payment"] for b in last12) if last12 else None,
+        "net_cost_prior_12": sum(sce_of(b) + b["solar_payment"] for b in prior12) if len(prior12) == 12 else None,
+        "bills_12": len(last12),
+    }
+    for b in bills:
+        if b["no_solar"]:
+            b["no_solar"] = {k: round(v, 2) for k, v in b["no_solar"].items()}
+    return {
+        "group": group, "spread": spread,
+        "solar_monthly_cost": SOLAR_MONTHLY_COST, "solar_cost_start": SOLAR_COST_START or None,
+        "rate_model": "tou" if TOU_PLAN else "flat",
+        "nem_settlement_month": nem_end if sett else None,
+        "headline": headline, "rows": rows, "annotations": notes, "bills": bills,
+        "utilityapi": {"enabled": bool(UTILITY_API_TOKEN), "last_sync": _uapi["last_sync"],
+                       "last_error": _uapi["last_error"]},
+    }
+
+
+def _shift_year(key, group):
+    if key.startswith("NEM "):
+        return f"NEM {int(key[4:]) - 1}"
+    return str(int(key[:4]) - 1) + key[4:]
+
+
+@app.route("/finance", methods=["GET"])
+def finance():
+    group = request.args.get("group", "month")
+    if group not in ("month", "quarter", "year", "nemyear"):
+        return jsonify({"error": "group must be month, quarter, year or nemyear"}), 400
+    return jsonify(_finance(group, request.args.get("spread", "1") != "0"))
+
+
+@app.route("/bills", methods=["GET"])
+def bills_list():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    out = [dict(r) for r in conn.execute("SELECT * FROM bills ORDER BY bill_date DESC")]
+    conn.close()
+    return jsonify({"bills": out})
+
+
+@app.route("/bills", methods=["POST"])
+def bills_save():
+    """Add or update bills. multipart with file= (one or more bill PDFs, parsed
+    and stored under DATA_DIR/bills), or JSON: one bill or a list. JSON with
+    ?replace=1 overwrites every field (the edit form); otherwise blank fields
+    keep their stored values."""
+    results = []
+    if request.files:
+        os.makedirs(BILLS_DIR, exist_ok=True)
+        for f in request.files.getlist("file"):
+            data = f.read()
+            if not data.startswith(b"%PDF"):
+                results.append({"file": f.filename, "error": "not a PDF"})
+                continue
+            try:
+                parsed = _parse_sce_bill(_pdf_text(data))
+            except Exception as e:
+                logger.warning("Bill PDF %s unreadable: %s", f.filename, e)
+                results.append({"file": f.filename, "error": "couldn't read the PDF"})
+                continue
+            if "bill_date" not in parsed or "amount" not in parsed:
+                results.append({"file": f.filename, "error": "couldn't find the bill date and amount",
+                                "parsed": parsed})
+                continue
+            name = parsed["bill_date"] + ".pdf"
+            with open(os.path.join(BILLS_DIR, name), "wb") as fh:
+                fh.write(data)
+            parsed.update(source="pdf", file=name)
+            with _db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                _upsert_bill(conn, parsed)
+                conn.commit()
+                conn.close()
+            results.append({"file": f.filename, "bill": parsed})
+        return jsonify({"results": results})
+    body = request.get_json(silent=True)
+    items = body if isinstance(body, list) else [body]
+    replace = request.args.get("replace") == "1"
+    clean = []
+    for item in items:
+        bill, err = _clean_bill(item)
+        if err:
+            return jsonify({"error": err, "bill": item}), 400
+        if bill["amount"] is None and replace:
+            return jsonify({"error": "amount is required", "bill": item}), 400
+        clean.append(bill)
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        for bill in clean:
+            if not replace:
+                bill = {k: v for k, v in bill.items() if v is not None}
+            _upsert_bill(conn, bill, replace)
+        conn.commit()
+        conn.close()
+    return jsonify({"saved": len(clean)})
+
+
+@app.route("/bills/<bill_date>", methods=["DELETE"])
+def bills_delete(bill_date):
+    if not _DATE_RE.match(bill_date):
+        return jsonify({"error": "bad date"}), 400
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        n = conn.execute("DELETE FROM bills WHERE bill_date = ?", (bill_date,)).rowcount
+        conn.commit()
+        conn.close()
+    return jsonify({"deleted": n})
+
+
+@app.route("/annotations", methods=["POST"])
+def annotations_save():
+    a = request.get_json(silent=True) or {}
+    if not _DATE_RE.match(str(a.get("date", ""))) or not str(a.get("label", "")).strip():
+        return jsonify({"error": "date (YYYY-MM-DD) and label are required"}), 400
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("INSERT OR REPLACE INTO annotations (date, label, detail) VALUES (?, ?, ?)",
+                     (a["date"], str(a["label"]).strip()[:120], str(a.get("detail") or "")[:1000]))
+        conn.commit()
+        conn.close()
+    return jsonify({"saved": 1})
+
+
+@app.route("/annotations", methods=["DELETE"])
+def annotations_delete():
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        n = conn.execute("DELETE FROM annotations WHERE date = ? AND label = ?",
+                         (request.args.get("date", ""), request.args.get("label", ""))).rowcount
+        conn.commit()
+        conn.close()
+    return jsonify({"deleted": n})
+
+
+@app.route("/usage", methods=["POST"])
+def usage_upload():
+    """Green Button download (XML or CSV) -> utility_intervals. Fills in
+    net/import/export kWh for bills that don't have them."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "no file"}), 400
+    try:
+        rows = _parse_green_button(f.read())
+    except Exception as e:
+        logger.warning("Green Button file %s unreadable: %s", f.filename, e)
+        return jsonify({"error": "couldn't read that file"}), 400
+    if not rows:
+        return jsonify({"error": "no interval readings found in that file"}), 400
+    with _db_lock:
+        conn = sqlite3.connect(DB_PATH)
+        conn.executemany("INSERT OR REPLACE INTO utility_intervals (ts, secs, delivered_kwh, received_kwh) "
+                         "VALUES (?, ?, ?, ?)", rows)
+        conn.commit()
+        conn.close()
+    return jsonify({"intervals": len(rows), "start": min(r[0] for r in rows),
+                    "end": max(r[0] + r[1] for r in rows),
+                    "delivered_kwh": round(sum(r[2] for r in rows), 1),
+                    "received_kwh": round(sum(r[3] for r in rows), 1)})
+
+
+# ── UtilityAPI sync ──────────────────────────────────────────────────
+_uapi = {"last_sync": None, "last_error": None, "bills": 0, "intervals": 0, "running": False}
+
+
+def _uapi_get(url):
+    """GET a UtilityAPI path or full `next` URL; yields each page."""
+    while url:
+        if not url.startswith("http"):
+            url = UTILITY_API_BASE + url
+        r = requests.get(url, headers={"Authorization": "Bearer " + UTILITY_API_TOKEN}, timeout=60)
+        r.raise_for_status()
+        page = r.json()
+        yield page
+        url = page.get("next")
+
+
+def _uapi_bill(b):
+    """A UtilityAPI bill -> a bills row. Its end date is exclusive."""
+    base = b.get("base") or {}
+    nem = b.get("sce_nem_details") or {}
+    items = b.get("line_items") or []
+    end = datetime.fromisoformat(base["bill_end_date"]) - timedelta(days=1)
+    row = {
+        "bill_date": base["bill_statement_date"][:10],
+        "period_start": base["bill_start_date"][:10],
+        "period_end": end.strftime("%Y-%m-%d"),
+        "amount": base.get("bill_total_cost"),
+        "net_kwh": base.get("bill_total_kwh"),
+        "import_kwh": nem.get("total_forward"),
+        "export_kwh": nem.get("total_reverse"),
+        "source": "utilityapi",
+    }
+    if nem.get("current_nem_month"):
+        row["nem_month"] = int(nem["current_nem_month"])
+    base_charge = sum(i.get("cost") or 0 for i in items if "base services charge" in (i.get("name") or "").lower())
+    if base_charge:
+        row["base_charge"] = base_charge
+    # SCE puts the NEM 12-month settlement on the settlement bill as a
+    # "Billing adjustment" line.
+    settle = sum(i.get("cost") or 0 for i in items if (i.get("name") or "").lower() == "billing adjustment")
+    if settle:
+        row["settlement"] = settle
+    return {k: v for k, v in row.items() if v is not None}
+
+
+def _uapi_sync():
+    """Pull every active meter's bills and new 15-min intervals."""
+    if _uapi["running"]:
+        return dict(_uapi)
+    _uapi["running"] = True
+    try:
+        meters = [m["uid"] for page in _uapi_get("meters") for m in page.get("meters", [])
+                  if not m.get("is_archived")]
+        n_bills = n_iv = 0
+        for uid in meters:
+            rows = [_uapi_bill(b) for page in _uapi_get(f"bills?meters={uid}") for b in page.get("bills", [])]
+            conn = sqlite3.connect(DB_PATH)
+            last = conn.execute("SELECT MAX(ts) FROM utility_intervals").fetchone()[0]
+            conn.close()
+            start = datetime.fromtimestamp((last or time.time() - 400 * 86400) - 2 * 86400, timezone.utc)
+            ivs = []
+            for page in _uapi_get(f"intervals?meters={uid}&start={start.strftime('%Y-%m-%dT%H:%M:%SZ')}"):
+                for block in page.get("intervals", []):
+                    for rd in block.get("readings", []):
+                        a = datetime.fromisoformat(rd["start"]).timestamp()
+                        b = datetime.fromisoformat(rd["end"]).timestamp()
+                        dp = {d["type"]: d["value"] for d in rd.get("datapoints", [])}
+                        net = rd.get("kwh") or 0
+                        fwd = dp.get("fwd", max(net, 0))
+                        rev = dp.get("rev", max(-net, 0))
+                        ivs.append((a, int(b - a), fwd, rev))
+            with _db_lock:
+                conn = sqlite3.connect(DB_PATH)
+                for row in rows:
+                    _upsert_bill(conn, row)
+                conn.executemany("INSERT OR REPLACE INTO utility_intervals (ts, secs, delivered_kwh, received_kwh) "
+                                 "VALUES (?, ?, ?, ?)", ivs)
+                conn.commit()
+                conn.close()
+            n_bills += len(rows)
+            n_iv += len(ivs)
+        _uapi.update(last_sync=time.time(), last_error=None, bills=n_bills, intervals=n_iv)
+        logger.info("UtilityAPI sync: %d bills, %d new intervals from %d meter(s)", n_bills, n_iv, len(meters))
+    except Exception as e:
+        _uapi["last_error"] = str(e)[:300]
+        logger.warning("UtilityAPI sync failed: %s", e)
+    finally:
+        _uapi["running"] = False
+    return dict(_uapi)
+
+
+def _uapi_loop():
+    logger.info("UtilityAPI sync enabled (every %gh)", UTILITY_API_SYNC_HOURS)
+    while True:
+        _uapi_sync()
+        time.sleep(UTILITY_API_SYNC_HOURS * 3600)
+
+
+@app.route("/utilityapi/sync", methods=["POST"])
+def utilityapi_sync():
+    if not UTILITY_API_TOKEN:
+        return jsonify({"error": "UTILITY_API_TOKEN is not set"}), 400
+    return jsonify(_uapi_sync())
+
+
+@app.before_request
+def _same_origin_writes():
+    """Bills and notes are written only from the dashboard itself. Browsers
+    tag requests from other sites (Sec-Fetch-Site); refuse those. Checked
+    this way rather than Origin vs Host because the Tailscale proxy rewrites
+    Host. Non-browser clients (curl) send no header and pass."""
+    if request.method in ("POST", "DELETE"):
+        if request.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+            return jsonify({"error": "cross-site write refused"}), 403
 
 
 # ── CORS ──────────────────────────────────────────────────────────────
@@ -2083,6 +2783,7 @@ if __name__ == "__main__":
         _load_mock_fixtures()
         _seed_mock_history()
         _seed_mock_outages()
+        _seed_mock_bills()
         t = threading.Thread(target=_background_refresh_mock, daemon=True)
         t.start()
     elif PVS_IP and PVS_PASS:
@@ -2090,6 +2791,8 @@ if __name__ == "__main__":
         t.start()
         if MIDSTATE_POLL_SECS > 0:
             threading.Thread(target=_midstate_watch, daemon=True).start()
+        if UTILITY_API_TOKEN and UTILITY_API_SYNC_HOURS > 0:
+            threading.Thread(target=_uapi_loop, daemon=True).start()
     else:
         logger.warning("PVS_IP or PVS_PASS not set — background refresh disabled, data will be fetched on-demand")
 

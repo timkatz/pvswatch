@@ -701,6 +701,64 @@
       .skeleton { animation: none; }
       * { transition-duration: 0s !important; }
     }
+
+    /* ── Net cost & savings ───────────────────── */
+    .fin-headline {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .fin-headline .big { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.2; }
+    .fin-headline.good { border-color: rgba(34,197,94,0.35); background: linear-gradient(0deg, var(--green-glow), var(--green-glow)), var(--bg-card); }
+    .fin-headline.bad { border-color: rgba(239,68,68,0.35); background: linear-gradient(0deg, var(--red-glow), var(--red-glow)), var(--bg-card); }
+    .fin-headline.good .big { color: var(--green); }
+    .fin-headline.bad .big { color: var(--red); }
+    .fin-headline .sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.35rem; line-height: 1.45; }
+    .fin-chart { position: relative; height: 260px; }
+    .fin-table-wrap { overflow-x: auto; margin-top: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); }
+    .fin-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    .fin-table th { text-align: right; font-weight: 600; color: var(--text-dim); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .fin-table td { text-align: right; padding: 0.45rem 0.6rem; border-top: 1px solid var(--border); white-space: nowrap; }
+    .fin-table tbody tr:first-child td { border-top: none; }
+    .fin-table th:first-child, .fin-table td:first-child { text-align: left; }
+    .fin-table td:first-child { font-weight: 600; }
+    .fin-table tr.clickable { cursor: pointer; }
+    .fin-table tr.clickable:hover td { background: var(--bg-card-hover); }
+    .fin-table .pos { color: var(--green); }
+    .fin-table .neg { color: var(--red); }
+    .fin-table .dim { color: var(--text-dim); }
+    .fin-table .mark { color: var(--accent); font-size: 0.65rem; margin-left: 0.2rem; }
+    .fin-table tr.note-row td { text-align: left; color: var(--accent); font-size: 0.72rem; border-top: none; padding-top: 0; white-space: normal; font-weight: 500; }
+    .fin-table .empty { text-align: center; color: var(--text-dim); padding: 1rem; }
+    .fin-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-dim); }
+    .fin-actions .pill-btn { border-radius: 9999px; }
+    .fin-actions .pill-btn:hover { background: var(--bg-card-hover); color: var(--text); }
+    .fin-toggle { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; margin-left: auto; }
+    .fin-msg { flex-basis: 100%; min-height: 1em; }
+    .fin-msg.err { color: var(--red); }
+    .fin-help { font-size: 0.7rem; color: var(--text-dim); margin-top: 0.6rem; line-height: 1.45; }
+    .fin-notes { list-style: none; margin-top: 0.6rem; font-size: 0.75rem; }
+    .fin-notes li { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.2rem 0; }
+    .fin-notes .when { color: var(--text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .fin-notes .what { color: var(--accent); font-weight: 600; }
+    .fin-notes .detail { color: var(--text-dim); }
+    .fin-notes button { margin-left: auto; background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.9rem; padding: 0 0.3rem; }
+    .fin-notes button:hover { color: var(--red); }
+    .fin-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .fin-form label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.65rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .fin-form input, .fin-form textarea { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.45rem 0.5rem; font: inherit; font-size: 0.85rem; text-transform: none; letter-spacing: 0; min-width: 0; }
+    .fin-form .wide { grid-column: 1 / -1; }
+    .fin-form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+    .fin-form-actions .pill-btn { border-radius: 9999px; }
+    .fin-form-actions .primary { background: var(--accent); color: #000; border-color: var(--accent); }
+    .fin-form-actions .danger { margin-right: auto; color: var(--red); border-color: rgba(239,68,68,0.4); }
+    @media (max-width: 480px) {
+      .fin-form { grid-template-columns: 1fr; }
+      .fin-toggle { margin-left: 0; }
+      .fin-headline .big { font-size: 1.15rem; }
+    }
   </style>
 </head>
 <body>
@@ -913,6 +971,31 @@
     </div>
 
     <div class="section-head">
+      <h2>Net Cost &amp; Savings</h2>
+      <div class="chart-tabs" id="finGroups">
+        <button class="pill-btn chart-tab active" data-group="month">MONTH</button>
+        <button class="pill-btn chart-tab" data-group="quarter">QUARTER</button>
+        <button class="pill-btn chart-tab" data-group="year">YEAR</button>
+        <button class="pill-btn chart-tab" data-group="nemyear">NEM YEAR</button>
+      </div>
+    </div>
+    <div class="fin-headline" id="finHeadline"><div class="big">—</div></div>
+    <div class="chart-wrap">
+      <div class="fin-chart"><canvas id="finChart"></canvas></div>
+    </div>
+    <div class="fin-table-wrap"><table class="fin-table" id="finTable"></table></div>
+    <ul class="fin-notes" id="finNotes"></ul>
+    <div class="fin-actions">
+      <label class="pill-btn" title="Upload one or more utility bill PDFs">⬆ Bill PDF<input type="file" id="finPdf" accept="application/pdf,.pdf" multiple hidden></label>
+      <label class="pill-btn" title="Upload the utility's Green Button usage download (XML or CSV)">⬆ Green Button<input type="file" id="finGb" accept=".xml,.csv,text/xml,text/csv" hidden></label>
+      <button class="pill-btn" id="finAddBill">+ Bill</button>
+      <button class="pill-btn" id="finAddNote">+ Note</button>
+      <label class="fin-toggle" title="Under annual NEM the year's energy charges land on one settle-up bill. Spreading shares it across that NEM year's bills."><input type="checkbox" id="finSpread" checked> Spread NEM settle-ups</label>
+      <span class="fin-msg" id="finMsg"></span>
+    </div>
+    <div class="fin-help" id="finHelp"></div>
+
+    <div class="section-head">
       <h2>Outages</h2>
       <span id="outageScope" style="font-size:0.75rem;color:var(--text-dim)"></span>
     </div>
@@ -982,6 +1065,23 @@
       </div>
       <div class="modal-chart-wrap"><canvas id="pm_chart"></canvas></div>
       <div style="margin-top:0.6rem;font-size:0.7rem;color:var(--text-dim)" id="pm_meta"></div>
+    </div>
+  </div>
+
+  <!-- Bill / note editor -->
+  <div class="modal-backdrop" id="finModal" onclick="if(event.target===this)closeFinModal()">
+    <div class="modal" role="dialog" aria-modal="true" style="max-width:520px">
+      <div class="modal-head">
+        <div><h3 id="fm_title">Bill</h3><div class="serial" id="fm_sub"></div></div>
+        <button class="modal-close" onclick="closeFinModal()" aria-label="Close">×</button>
+      </div>
+      <form class="fin-form" id="fm_form" onsubmit="event.preventDefault(); saveFinModal();"></form>
+      <div class="fin-form-actions">
+        <button class="pill-btn danger" id="fm_delete" type="button" onclick="deleteFinModal()">Delete</button>
+        <button class="pill-btn" type="button" onclick="closeFinModal()">Cancel</button>
+        <button class="pill-btn primary" type="button" onclick="saveFinModal()">Save</button>
+      </div>
+      <div class="fin-help" id="fm_msg"></div>
     </div>
   </div>
 
@@ -2132,6 +2232,371 @@ function renderPanelDrill(data) {
   });
 }
 
+// ── Net cost & savings ───────────────────────────────────────────────
+// Utility bills (uploaded PDFs / Green Button / manual) + the fixed solar
+// payment, against an estimate of what the house would cost with no solar.
+let finGroup = 'month';
+let finData = null;
+let finChart = null;
+let finEdit = null;  // {kind: 'bill'|'note', item}
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function money(v, dp = 0) {
+  if (v == null || !isFinite(v)) return '—';
+  const s = Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  return (v < 0 ? '−$' : '$') + s;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function finLabel(key) {
+  let m;
+  if ((m = key.match(/^(\d{4})-(\d\d)$/))) return MONTHS[+m[2] - 1] + ' ' + m[1];
+  if ((m = key.match(/^(\d{4})-Q(\d)$/))) return 'Q' + m[2] + ' ' + m[1];
+  if ((m = key.match(/^NEM (\d{4})$/))) {
+    const end = (finData && finData.nem_settlement_month) || 12;
+    const startY = end === 12 ? +m[1] : +m[1] - 1;
+    return `${MONTHS[end % 12]} ${String(startY).slice(2)}–${MONTHS[end - 1]} ${m[1].slice(2)}`;
+  }
+  return key;
+}
+
+// Change vs. an earlier period's net cost. Paying more is red.
+function finDelta(now, before) {
+  if (now == null || before == null) return '<span class="dim">—</span>';
+  const d = now - before;
+  const pct = Math.abs(before) >= 1 ? ` (${d >= 0 ? '+' : '−'}${Math.round(Math.abs(d / before) * 100)}%)` : '';
+  if (Math.abs(d) < 0.5) return '<span class="dim">same</span>';
+  return `<span class="${d > 0 ? 'neg' : 'pos'}">${d > 0 ? '+' : '−'}${money(Math.abs(d))}${pct}</span>`;
+}
+
+// Index of the chart row a dated note belongs to.
+function finNoteIndex(rows, date) {
+  let idx = rows.findIndex(r => r.start <= date && date <= r.end);
+  if (idx < 0) idx = rows.findIndex(r => r.end >= date);
+  return idx;
+}
+
+async function fetchFinance() {
+  try {
+    const spread = document.getElementById('finSpread').checked ? 1 : 0;
+    const res = await fetch(`/finance?group=${finGroup}&spread=${spread}`);
+    if (!res.ok) return;
+    finData = await res.json();
+    renderFinance();
+  } catch (e) {
+    console.error('Finance fetch error:', e);
+  }
+}
+
+function renderFinance() {
+  const d = finData;
+  if (!d) return;
+  renderFinHeadline(d);
+  renderFinChart(d);
+  renderFinTable(d);
+  const notes = document.getElementById('finNotes');
+  notes.innerHTML = d.annotations.map((a, i) =>
+    `<li><span class="when">${esc(a.date)}</span><span class="what">📌 ${esc(a.label)}</span>` +
+    `<span class="detail">${esc(a.detail)}</span><button title="Remove note" data-note="${i}">×</button></li>`).join('');
+  const rate = d.rate_model === 'tou' ? 'your time-of-use rates' : 'your flat rate';
+  document.getElementById('finHelp').textContent =
+    `No-solar estimate = what the home used (solar made + net kWh from the grid) at ${rate}, plus the bill's fixed base charge. ` +
+    `Solar payment: ${money(d.solar_monthly_cost, 2)}/mo` + (d.solar_cost_start ? ` from ${d.solar_cost_start}` : '') +
+    `. ◆ = includes a NEM settle-up` + (d.spread ? ' (spread over its NEM year).' : '.');
+}
+
+function renderFinHeadline(d) {
+  const el = document.getElementById('finHeadline');
+  const h = d.headline;
+  if (!d.bills.length) {
+    el.className = 'fin-headline';
+    el.innerHTML = '<div class="big">Add your bills to see if solar is paying off</div>' +
+      '<div class="sub">Upload utility bill PDFs below, or add one by hand.</div>';
+    return;
+  }
+  let big, sub = '';
+  if (h.months) {
+    const good = h.saved >= 0;
+    el.className = 'fin-headline ' + (good ? 'good' : 'bad');
+    big = good ? `☀️ Solar is saving you about ${money(h.per_month)}/mo`
+               : `Solar is costing you about ${money(-h.per_month)}/mo more`;
+    sub = `Last ${h.months} bill${h.months === 1 ? '' : 's'} with data: you paid ${money(h.paid)} ` +
+          `(utility ${money(h.sce)} + solar ${money(h.solar_payment)}) vs about ${money(h.no_solar)} with no solar.`;
+  } else {
+    el.className = 'fin-headline';
+    big = `Net cost ${money(h.net_cost_12)} over the last ${h.bills_12} bill${h.bills_12 === 1 ? '' : 's'}`;
+    sub = 'The no-solar estimate needs pvswatch history covering a whole bill period.';
+  }
+  if (h.net_cost_12 != null && h.net_cost_prior_12 != null) {
+    sub += ` Net cost, last 12 bills: ${money(h.net_cost_12)} vs ${money(h.net_cost_prior_12)} the 12 before (${finDelta(h.net_cost_12, h.net_cost_prior_12)}).`;
+  } else if (h.months && h.net_cost_12 != null) {
+    sub += ` Net cost, last ${h.bills_12} bills: ${money(h.net_cost_12)}.`;
+  }
+  el.innerHTML = `<div class="big">${big}</div><div class="sub">${sub}</div>`;
+}
+
+// Dashed vertical marker + label for each dated note.
+function finNotesPlugin(rows, notes) {
+  return {
+    id: 'finNotes',
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      const perIdx = {};
+      for (const a of notes) {
+        const i = finNoteIndex(rows, a.date);
+        if (i < 0) continue;
+        const x = scales.x.getPixelForValue(i);
+        const n = perIdx[i] = (perIdx[i] || 0) + 1;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(245,158,11,0.8)';
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = '600 10px -apple-system, system-ui, sans-serif';
+        const text = '📌 ' + (a.label.length > 28 ? a.label.slice(0, 27) + '…' : a.label);
+        const w = ctx.measureText(text).width;
+        const tx = x + 4 + w > chartArea.right ? x - 4 - w : x + 4;
+        ctx.fillText(text, tx, chartArea.top + 10 + (n - 1) * 13);
+        ctx.restore();
+      }
+    },
+  };
+}
+
+function renderFinChart(d) {
+  const canvas = document.getElementById('finChart');
+  if (finChart) { finChart.destroy(); finChart = null; }
+  const rows = d.rows;
+  if (!rows.length) return;
+  finChart = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => finLabel(r.key)),
+      datasets: [
+        { label: 'Utility bill', data: rows.map(r => +r.sce.toFixed(2)), backgroundColor: 'rgba(59,130,246,0.8)', stack: 'paid', borderWidth: 0, order: 2 },
+        { label: 'Solar payment', data: rows.map(r => +r.solar_payment.toFixed(2)), backgroundColor: 'rgba(245,158,11,0.75)', stack: 'paid', borderWidth: 0, order: 2 },
+        { label: 'No-solar estimate', type: 'line', data: rows.map(r => r.no_solar == null ? null : +r.no_solar.toFixed(2)),
+          borderColor: '#22c55e', backgroundColor: '#22c55e', borderWidth: 2, borderDash: [5, 4], pointRadius: 3, spanGaps: false, order: 1 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#7a8a9e', boxWidth: 10, font: { size: 11 } } },
+        tooltip: {
+          backgroundColor: '#1e2a3a', titleColor: '#e4e8ee', bodyColor: '#e4e8ee',
+          borderColor: '#2a3a4e', borderWidth: 1, padding: 10,
+          callbacks: {
+            label: c => c.parsed.y == null ? null : `${c.dataset.label}: ${money(c.parsed.y, 2)}`,
+            footer: items => {
+              const r = rows[items[0].dataIndex];
+              const lines = [`Net cost: ${money(r.total, 2)}`];
+              if (r.saved != null) lines.push(`${r.saved >= 0 ? 'Saved' : 'Extra'}: ${money(Math.abs(r.saved), 2)}${r.coverage === 'partial' ? ' (some bills)' : ''}`);
+              for (const a of d.annotations) if (finNoteIndex(rows, a.date) === items[0].dataIndex) lines.push('📌 ' + a.label);
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#7a8a9e', font: { size: 10 }, maxRotation: 0, autoSkipPadding: 10 }, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true, ticks: { color: '#7a8a9e', font: { size: 10 }, callback: v => money(v) }, grid: { color: 'rgba(30,42,58,0.5)' } },
+      },
+    },
+    plugins: [finNotesPlugin(rows, d.annotations)],
+  });
+}
+
+function renderFinTable(d) {
+  const t = document.getElementById('finTable');
+  const head = '<thead><tr><th>Period</th><th>Utility</th><th>Solar</th><th>Net cost</th><th>No-solar est.</th>' +
+               '<th>Saved</th><th>vs prev</th><th>vs last yr</th><th>Net kWh</th></tr></thead>';
+  if (!d.rows.length) {
+    t.innerHTML = head + '<tbody><tr><td class="empty" colspan="9">No bills yet</td></tr></tbody>';
+    return;
+  }
+  const body = [];
+  for (let i = d.rows.length - 1; i >= 0; i--) {
+    const r = d.rows[i];
+    const editable = r.bills.length === 1;
+    const settle = r.settlement ? `<span class="mark" title="Includes a ${money(r.settlement, 2)} NEM settle-up (billed ${money(r.sce_cash, 2)})">◆</span>` : '';
+    const saved = r.saved == null ? '<span class="dim">—</span>'
+      : `<span class="${r.saved >= 0 ? 'pos' : 'neg'}">${money(r.saved)}</span>${r.coverage === 'partial' ? '<span class="dim" title="Estimate covers only some of these bills"> ~</span>' : ''}`;
+    body.push(`<tr class="${editable ? 'clickable' : ''}" data-bill="${editable ? esc(r.bills[0]) : ''}" title="${editable ? 'Edit this bill' : r.bills.length + ' bills'}">` +
+      `<td>${esc(finLabel(r.key))}</td><td>${money(r.sce)}${settle}</td><td>${money(r.solar_payment)}</td>` +
+      `<td><b>${money(r.total)}</b></td><td>${r.no_solar == null ? '<span class="dim">—</span>' : money(r.no_solar)}</td>` +
+      `<td>${saved}</td><td>${finDelta(r.total, r.prev_total)}</td><td>${finDelta(r.total, r.yoy_total)}</td>` +
+      `<td>${r.net_kwh == null ? '<span class="dim">—</span>' : Math.round(r.net_kwh).toLocaleString()}</td></tr>`);
+    for (const a of d.annotations) {
+      if (finNoteIndex(d.rows, a.date) === i) body.push(`<tr class="note-row"><td colspan="9">📌 ${esc(a.date)} · ${esc(a.label)}${a.detail ? ' — ' + esc(a.detail) : ''}</td></tr>`);
+    }
+  }
+  t.innerHTML = head + '<tbody>' + body.join('') + '</tbody>';
+}
+
+function finMsg(text, isErr) {
+  const el = document.getElementById('finMsg');
+  el.textContent = text;
+  el.classList.toggle('err', !!isErr);
+}
+
+async function finPost(url, opts) {
+  const res = await fetch(url, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+
+async function uploadBillPdfs(files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  for (const f of files) fd.append('file', f);
+  finMsg(`Reading ${files.length} bill${files.length === 1 ? '' : 's'}…`);
+  try {
+    const out = await finPost('/bills', { method: 'POST', body: fd });
+    const ok = out.results.filter(r => r.bill);
+    const bad = out.results.filter(r => r.error);
+    let msg = ok.length ? `Added ${ok.map(r => r.bill.bill_date + ' (' + money(r.bill.amount, 2) + ')').join(', ')}.` : '';
+    if (bad.length) msg += ` Couldn't read ${bad.map(r => r.file + ': ' + r.error).join('; ')}. Add it with + Bill.`;
+    finMsg(msg.trim(), !!bad.length && !ok.length);
+    fetchFinance();
+  } catch (e) {
+    finMsg('Upload failed: ' + e.message, true);
+  }
+}
+
+async function uploadGreenButton(file) {
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  finMsg('Reading usage file…');
+  try {
+    const out = await finPost('/usage', { method: 'POST', body: fd });
+    const day = ts => new Date(ts * 1000).toLocaleDateString();
+    finMsg(`Imported ${out.intervals.toLocaleString()} readings, ${day(out.start)} – ${day(out.end)} ` +
+           `(${out.delivered_kwh.toLocaleString()} kWh in, ${out.received_kwh.toLocaleString()} kWh out).`);
+    fetchFinance();
+  } catch (e) {
+    finMsg('Usage import failed: ' + e.message, true);
+  }
+}
+
+const BILL_FIELDS = [
+  ['bill_date', 'Bill date', 'date'], ['amount', 'Amount ($)', 'number'],
+  ['period_start', 'Period start', 'date'], ['period_end', 'Period end', 'date'],
+  ['settlement', 'NEM settle-up incl. ($)', 'number'], ['net_kwh', 'Net kWh', 'number'],
+  ['import_kwh', 'kWh from grid', 'number'], ['export_kwh', 'kWh to grid', 'number'],
+  ['base_charge', 'Base charge ($)', 'number'], ['nem_month', 'NEM month', 'number'],
+  ['notes', 'Notes', 'textarea'],
+];
+const NOTE_FIELDS = [['date', 'Date', 'date'], ['label', 'Note', 'text'], ['detail', 'Details', 'textarea']];
+
+function openFinModal(kind, item) {
+  finEdit = { kind, item: item || null };
+  const fields = kind === 'bill' ? BILL_FIELDS : NOTE_FIELDS;
+  const v = item || {};
+  document.getElementById('fm_title').textContent = kind === 'bill' ? (item ? 'Edit bill' : 'Add bill') : 'Add note';
+  document.getElementById('fm_sub').textContent = kind === 'bill' && item && item.source ? 'from ' + item.source + (item.file ? ' · ' + item.file : '') : '';
+  document.getElementById('fm_form').innerHTML = fields.map(([k, label, type]) => {
+    const val = v[k] == null ? '' : esc(v[k]);
+    const input = type === 'textarea'
+      ? `<textarea name="${k}" rows="2">${val}</textarea>`
+      : `<input name="${k}" type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${val}">`;
+    return `<label class="${type === 'textarea' ? 'wide' : ''}">${label}${input}</label>`;
+  }).join('');
+  const del = document.getElementById('fm_delete');
+  del.style.display = item && kind === 'bill' ? '' : 'none';
+  del.textContent = 'Delete';
+  delete del.dataset.armed;
+  document.getElementById('fm_msg').textContent = kind === 'note'
+    ? 'Notes show on the chart, e.g. a billing plan change or an equipment repair.' : '';
+  document.getElementById('finModal').classList.add('open');
+}
+
+function closeFinModal() {
+  document.getElementById('finModal').classList.remove('open');
+  finEdit = null;
+}
+
+async function saveFinModal() {
+  if (!finEdit) return;
+  const data = Object.fromEntries(new FormData(document.getElementById('fm_form')).entries());
+  const msg = document.getElementById('fm_msg');
+  try {
+    if (finEdit.kind === 'bill') {
+      if (finEdit.item) {
+        data.source = finEdit.item.source;
+        data.file = finEdit.item.file;
+        if (finEdit.item.bill_date !== data.bill_date) await finPost('/bills/' + finEdit.item.bill_date, { method: 'DELETE' });
+      } else {
+        data.source = 'manual';
+      }
+      await finPost('/bills?replace=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    } else {
+      await finPost('/annotations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    }
+    closeFinModal();
+    fetchFinance();
+  } catch (e) {
+    msg.textContent = 'Not saved: ' + e.message;
+  }
+}
+
+// Two taps to delete, no browser confirm() dialog.
+async function deleteFinModal() {
+  const btn = document.getElementById('fm_delete');
+  if (!btn.dataset.armed) { btn.dataset.armed = '1'; btn.textContent = 'Tap again to delete'; return; }
+  try {
+    await finPost('/bills/' + finEdit.item.bill_date, { method: 'DELETE' });
+    closeFinModal();
+    fetchFinance();
+  } catch (e) {
+    document.getElementById('fm_msg').textContent = 'Not deleted: ' + e.message;
+  }
+}
+
+document.getElementById('finGroups').addEventListener('click', (e) => {
+  const b = e.target.closest('.chart-tab');
+  if (!b) return;
+  document.querySelectorAll('#finGroups .chart-tab').forEach(x => x.classList.toggle('active', x === b));
+  finGroup = b.dataset.group;
+  fetchFinance();
+});
+document.getElementById('finSpread').addEventListener('change', fetchFinance);
+document.getElementById('finPdf').addEventListener('change', (e) => { uploadBillPdfs([...e.target.files]); e.target.value = ''; });
+document.getElementById('finGb').addEventListener('change', (e) => { uploadGreenButton(e.target.files[0]); e.target.value = ''; });
+document.getElementById('finAddBill').addEventListener('click', () => openFinModal('bill'));
+document.getElementById('finAddNote').addEventListener('click', () => openFinModal('note'));
+document.getElementById('finTable').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-bill]');
+  if (!tr || !tr.dataset.bill || !finData) return;
+  const bill = finData.bills.find(b => b.bill_date === tr.dataset.bill);
+  if (bill) openFinModal('bill', bill);
+});
+document.getElementById('finNotes').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-note]');
+  if (!b || !finData) return;
+  const a = finData.annotations[+b.dataset.note];
+  try {
+    await finPost(`/annotations?date=${encodeURIComponent(a.date)}&label=${encodeURIComponent(a.label)}`, { method: 'DELETE' });
+    fetchFinance();
+  } catch (err) {
+    finMsg('Not removed: ' + err.message, true);
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('finModal').classList.contains('open')) closeFinModal();
+});
+
 // ── Bootstrap ────────────────────────────────────────────────────────
 if (!stopFetch) {
   refreshAvailableRanges();
@@ -2139,6 +2604,8 @@ if (!stopFetch) {
   setTimeout(fetchHistory, 3000);
   refreshTmrID = setInterval(() => { fetchData(); fetchHistory(); }, REFRESH_INTERVAL);
   setInterval(refreshAvailableRanges, 30 * 60 * 1000); // recheck every 30 min
+  fetchFinance();
+  setInterval(fetchFinance, 30 * 60 * 1000);  // bills change rarely
 }
 </script>
 </body>

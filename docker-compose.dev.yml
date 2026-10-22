@@ -20,6 +20,8 @@ services:
       # Fast refresh so the LIVE flow updates visibly during a test run.
       - REFRESH_SECS=15
       - LOG_LEVEL=INFO
+      # Fixed solar payment so the Net Cost card has something to add.
+      - SOLAR_MONTHLY_COST=150
       - DB_PATH=/data/solar_history.db
     volumes:
       # Mount fixtures live so tests can edit them without a rebuild.
