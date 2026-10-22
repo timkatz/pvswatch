@@ -1819,6 +1819,20 @@ def _load_rates(conn, t0=None, t1=None):
     return rates.get(0) if t0 is not None else rates
 
 
+def _battery_net(conn, t0, t1):
+    """kWh the battery put out minus what it took in over [t0, t1), from
+    battery_kw (+ = discharging). Negative when it stored energy or lost
+    some to round-trip losses. None unless readings cover 90% of the window."""
+    rows = conn.execute("SELECT ts, battery_kw FROM readings WHERE ts >= ? AND ts < ? ORDER BY ts",
+                        (t0, t1)).fetchall()
+    kwh = covered = 0.0
+    for (ts, kw), nxt in zip(rows, rows[1:]):
+        dt = min(nxt[0] - ts, 2 * REFRESH_SECS)
+        covered += dt
+        kwh += (kw or 0) * dt / 3600
+    return kwh if covered >= 0.9 * (t1 - t0) else None
+
+
 def _months_solar(conn, bill, col="solar_kwh"):
     """Solar (or home, col="home_kwh") kWh for a bill period from
     solar_months, prorated by days. None unless every month the period
@@ -1852,8 +1866,9 @@ def _no_solar_estimate(conn, bill, tz, typical_rates=None):
     """What a bill period would have cost with no solar. Home use = solar
     made + net kWh from the grid, priced at the TOU rate weighted by when
     the home uses power, plus the bill's fixed base charge, which a
-    no-solar home pays too. Battery losses count as home use, so this runs
-    a little high.
+    no-solar home pays too. With pvswatch readings, energy the battery took
+    in and didn't give back (round-trip losses, a fuller battery at the end)
+    is taken out, since a no-solar home wouldn't use it.
 
     Solar comes from the inverter lifetime counter when pvswatch covers the
     period; otherwise from solar_months (e.g. the solar company's app),
@@ -1891,9 +1906,12 @@ def _no_solar_estimate(conn, bill, tz, typical_rates=None):
     # Today's TOU rates, scaled to the rates on this bill when known.
     rate = (rate or COST_PER_KWH) * (bill.get("rate_scale") or 1)
     home = solar + net
+    battery = _battery_net(conn, t0, t1) if basis == "pvswatch" else None
+    if battery is not None:
+        home += battery
     if home <= 0:
         return None
-    return {"solar_kwh": solar, "home_kwh": home, "rate": rate, "basis": basis,
+    return {"solar_kwh": solar, "home_kwh": home, "battery_kwh": battery, "rate": rate, "basis": basis,
             "rates": "bill" if bill.get("rate_scale") else "today",
             "cost": home * rate + (bill.get("base_charge") or 0)}
 
