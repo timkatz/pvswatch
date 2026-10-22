@@ -55,9 +55,12 @@ def main():
     serial_map = {s: f"MOCKINV{i:03d}" for i, s in enumerate(real_serials, start=1)}
     print(f"Anonymizing {len(serial_map)} panel serials → MOCKINV001..{len(serial_map):03d}")
 
-    if os.path.exists(args.out):
-        os.remove(args.out)
-    dst = sqlite3.connect(args.out)
+    # Build into a temp file and rename at the end, so a failed run never
+    # leaves an empty fixture where a good one was.
+    tmp_out = args.out + ".tmp"
+    if os.path.exists(tmp_out):
+        os.remove(tmp_out)
+    dst = sqlite3.connect(tmp_out)
     # Match the runtime schema exactly (proxy.py _init_db). Keeping these in
     # sync is mandatory — if you ALTER TABLE in proxy.py, mirror it here.
     dst.executescript("""
@@ -68,7 +71,8 @@ def main():
             pf_production REAL, pf_consumption REAL,
             num_panels INTEGER, panels_working INTEGER, panels_error INTEGER,
             battery_kw REAL, battery_soc REAL, backup_min REAL,
-            battery_lifetime_kwh REAL, home_lifetime_kwh REAL, grid_lifetime_kwh REAL
+            battery_lifetime_kwh REAL, home_lifetime_kwh REAL, grid_lifetime_kwh REAL,
+            pvs_uptime_s REAL, midstate INTEGER
         );
         CREATE TABLE panel_readings (
             ts REAL, serial TEXT, panel_model TEXT, state TEXT, watts REAL,
@@ -79,14 +83,17 @@ def main():
 
     # Normalize timestamps relative to max_ts: newest row → 0, older → negative.
     # Removes "this fixture was captured at <date>" as a side-channel.
+    # Copy by column name: columns the source lacks stay NULL, and columns
+    # the fixture schema doesn't know about are dropped.
+    dst_cols = [r[1] for r in dst.execute("PRAGMA table_info(readings)")]
+    src_cols = {r[1] for r in src.execute("PRAGMA table_info(readings)")}
+    cols = [c for c in dst_cols if c in src_cols]
+    insert = f"INSERT INTO readings ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
     n_readings = 0
-    for row in src.execute("SELECT * FROM readings WHERE ts >= ?", (cutoff,)):
-        d = list(row)
-        d[0] = d[0] - max_ts
-        dst.execute(
-            "INSERT INTO readings VALUES (" + ",".join("?" * 20) + ")",
-            tuple(d),
-        )
+    for row in src.execute(f"SELECT {', '.join(cols)} FROM readings WHERE ts >= ?", (cutoff,)):
+        d = dict(zip(cols, row))
+        d["ts"] = d["ts"] - max_ts
+        dst.execute(insert, [d[c] for c in cols])
         n_readings += 1
 
     n_panel = 0
@@ -105,6 +112,7 @@ def main():
     dst.execute("VACUUM")
     dst.close()
     src.close()
+    os.replace(tmp_out, args.out)
 
     size_mb = os.path.getsize(args.out) / (1024 * 1024)
     print(f"Wrote {args.out}")
