@@ -2914,6 +2914,13 @@ def history():
             #   Sunny day      pv=4.02 load=1.12 → net_kw=-2.89  (exporting 2.9 kW)
             net_kwh = (totals_row["avg_net"] or 0) * elapsed_h
             battery_net_kwh = (totals_row["avg_battery"] or 0) * elapsed_h  # +discharge, -charge
+            # site_load_en counts roughly half of battery charging as home use
+            # (10-22: +11.7 kWh on a 22.9 kWh charge day), so with a battery
+            # use the energy balance instead. It matches the SunStrong app.
+            if totals_row["avg_battery"] is not None:
+                balance_kwh = solar_kwh + net_kwh + battery_net_kwh
+                if balance_kwh > 0.01:
+                    home_kwh = balance_kwh
 
             grid_import_kwh = max(0, net_kwh)
             grid_export_kwh = max(0, -net_kwh)
