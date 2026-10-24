@@ -2917,8 +2917,17 @@ def history():
             # site_load_en counts roughly half of battery charging as home use
             # (10-22: +11.7 kWh on a 22.9 kWh charge day), so with a battery
             # use the energy balance instead. It matches the SunStrong app.
+            # Time-weighted (each row × time until the next), because polls are
+            # unevenly spaced and plain AVG × hours read ~1 kWh/day high.
             if totals_row["avg_battery"] is not None:
-                balance_kwh = solar_kwh + net_kwh + battery_net_kwh
+                balance_kwh = c.execute("""
+                    SELECT SUM((COALESCE(production_kw, 0) + COALESCE(net_kw, 0)
+                                + COALESCE(battery_kw, 0)) * (nxt - ts) / 3600.0)
+                    FROM (SELECT ts, production_kw, net_kw, battery_kw,
+                                 LEAD(ts) OVER (ORDER BY ts) AS nxt
+                          FROM readings WHERE ts > ? AND ts <= ?)
+                    WHERE nxt IS NOT NULL
+                """, (cutoff, end_ts)).fetchone()[0] or 0
                 if balance_kwh > 0.01:
                     home_kwh = balance_kwh
 
