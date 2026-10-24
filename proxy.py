@@ -268,6 +268,11 @@ def _init_db():
         # midstate added 2026-10-21 — livedata midstate (Hub+/MID state).
         # 2 = on grid; see _midstate_kind.
         ("midstate", "INTEGER"),
+        # grid_l1_kw / grid_l2_kw added 2026-10-23 — per-leg grid power from
+        # the consumption meter (+ = importing). SunVault PCS caps discharge
+        # to the lighter leg, so the split shows how much it can cover.
+        ("grid_l1_kw", "REAL"),
+        ("grid_l2_kw", "REAL"),
     ):
         try:
             c.execute(f"ALTER TABLE readings ADD COLUMN {col} {sql_type}")
@@ -355,6 +360,8 @@ def _record_reading(devices_json_str, livedata=None):
         battery_soc = float(resp_soc)
     backup_min = float(livedata.get("backupTimeRemaining", 0)) if livedata else 0
     midstate = (data.get("battery") or {}).get("midstate")
+    grid_l1 = _float_or_none(meter_c.get("p1_kw")) if meter_c else None
+    grid_l2 = _float_or_none(meter_c.get("p2_kw")) if meter_c else None
     battery_lifetime_kwh = _cumulative(livedata.get("ess_en")) if livedata else None
     home_lifetime_kwh = _cumulative(livedata.get("site_load_en")) if livedata else None
     grid_lifetime_kwh = _cumulative(livedata.get("net_en")) if livedata else None
@@ -402,13 +409,15 @@ def _record_reading(devices_json_str, livedata=None):
                  sys_v, l1_v, l2_v, freq_hz, pf_production, pf_consumption,
                  num_panels, panels_working, panels_error,
                  battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
-                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime_s, midstate)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime_s, midstate,
+                 grid_l1_kw, grid_l2_kw)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (ts, production, consumption, net, lifetime,
                  sys_v, l1_v, l2_v, freq, pf_p, pf_c,
                  num_panels, panels_working, panels_error,
                  battery_kw, battery_soc, backup_min, battery_lifetime_kwh,
-                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime, midstate))
+                 home_lifetime_kwh, grid_lifetime_kwh, pvs_uptime, midstate,
+                 grid_l1, grid_l2))
             # Per-panel data
             for inv in inverters:
                 serial = inv.get("SERIAL", "unknown")
@@ -606,6 +615,36 @@ def _fetch_livedata(sess, ip):
         return {}
 
 
+def _float_or_none(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _fetch_meter_legs(sess, ip):
+    """Per-leg power (p1, p2) of the consumption meter from the varserver,
+    which refreshes every ~5 min; the device-list copy only updates on the
+    PVS scan cycle. Returns (p1, p2) or None."""
+    try:
+        r = sess.get(f"https://{ip}/vars?match=/sys/devices/meter/&fmt=obj",
+                     verify=False, timeout=TIMEOUT_SECS)
+        if r.status_code != 200:
+            return None
+        v = r.json()
+    except Exception as e:
+        logger.debug("Meter legs fetch error: %s", e)
+        return None
+    for k, model in v.items():
+        if k.endswith("/prodMdlNm") and str(model).lower().endswith("c"):
+            prefix = k[: -len("prodMdlNm")]
+            p1, p2 = _float_or_none(v.get(prefix + "p1Kw")), _float_or_none(v.get(prefix + "p2Kw"))
+            if p1 is not None and p2 is not None:
+                return p1, p2
+    return None
+
+
 def _build_meter_device(vars_data, meter_index, suffix):
     """Build a PVS5-METER-P/C device dict from varserver data."""
     prefix = f"/sys/devices/meter/{meter_index}/"
@@ -692,6 +731,12 @@ def _supplement_devices(devices_json, ip, sess):
                 d["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 logger.debug("Meter-C CURTIME overridden to %s", d["CURTIME"])
 
+    legs = _fetch_meter_legs(sess, ip)
+    if legs:
+        for d in device_list:
+            if d.get("TYPE") == "PVS5-METER-C":
+                d["p1_kw"], d["p2_kw"] = str(legs[0]), str(legs[1])
+
     # If meters already present in device list, return now
     if "PVS5-METER-P" in types and "PVS5-METER-C" in types:
         _inject_battery(data, livedata)
@@ -712,6 +757,8 @@ def _supplement_devices(devices_json, ip, sess):
                 meter_c["p_3phsum_kw"] = str(site_load_p)
                 if ld_ts is not None:
                     meter_c["CURTIME"] = datetime.fromtimestamp(ld_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if legs:
+                meter_c["p1_kw"], meter_c["p2_kw"] = str(legs[0]), str(legs[1])
             device_list.append(meter_c)
 
     if "PVS5-METER-P" not in types:
@@ -2748,6 +2795,8 @@ def history():
                 AVG(net_kw) as net_kw,
                 AVG(battery_kw) as battery_kw,
                 AVG(battery_soc) as battery_soc,
+                AVG(grid_l1_kw) as grid_l1_kw,
+                AVG(grid_l2_kw) as grid_l2_kw,
                 MAX(NULLIF(lifetime_kwh, 0)) as lifetime_kwh,
                 AVG(sys_v) as sys_v,
                 AVG(l1_v) as l1_v,
