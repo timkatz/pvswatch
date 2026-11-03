@@ -186,6 +186,9 @@
       color: var(--text-dim);
     }
 
+    .section-meta { font-size: 0.7rem; color: var(--text-dim); }
+    .section-meta.stale { color: var(--accent); }
+
     /* ── Sub metrics row ────────────────────────── */
     .sub-metrics {
       display: grid;
@@ -958,7 +961,7 @@
       </div>
     </div>
 
-    <div class="section-head"><h2>SunVault Battery</h2></div>
+    <div class="section-head"><h2>SunVault Battery</h2><span class="section-meta" id="batteryAsOf"></span></div>
     <div class="grid-status" id="gridStatus" role="status"></div>
     <div class="battery-grid" id="batterySection">
       <div class="battery-card">
@@ -1275,12 +1278,25 @@ async function fetchData() {
     // Grid value comes from the PVS revenue meter (data.grid.p_kw) when
     // available; this is more accurate than deriving from energy balance.
     // Sign convention: gridKw > 0 = importing, < 0 = exporting (PVS net_p).
+    // The PVS sometimes returns no battery block (e.g. just after it drops
+    // off the LAN and re-registers). Keep the last good reading for a few
+    // minutes so the cards don't blank, and remember when it was fetched.
+    const nowSec = Date.now() / 1000;
+    const bat = data.battery;
+    if (bat && Number.isFinite(bat.soc)) {
+      lastBattery = { kw: bat.p_kw ?? null, soc: bat.soc,
+                      backupMin: bat.backup_min ?? null,
+                      midstate: bat.midstate ?? null, ts: nowSec };
+    }
+    const batFresh = lastBattery && (nowSec - lastBattery.ts) <= BATTERY_STALE_SEC;
+    const lb = batFresh ? lastBattery : null;
     liveSnapshot = {
       prodKw, consKw, netKw, lifetimeKwh,
-      batteryKw:  data.battery?.p_kw        ?? null,
-      batterySoc: data.battery?.soc         ?? null,
-      backupMin:  data.battery?.backup_min  ?? null,
-      midstate:   data.battery?.midstate    ?? null,
+      batteryKw:  lb?.kw        ?? null,
+      batterySoc: lb?.soc       ?? null,
+      backupMin:  lb?.backupMin ?? null,
+      midstate:   lb?.midstate  ?? null,
+      batteryTs:  lastBattery?.ts ?? null,
       gridKw:     data.grid?.p_kw           ?? null,
       gridL1:     meterC?.p1_kw != null ? parseFloat(meterC.p1_kw) : null,
       gridL2:     meterC?.p2_kw != null ? parseFloat(meterC.p2_kw) : null,
@@ -1469,6 +1485,8 @@ function manualRefresh() {
 let powerChart = null;
 let currentRange = '24h';   // 'live' | '1h' | '6h' | '24h' | '7d' | '30d' | '90d' | '1y' | 'all'
 let currentMode  = 'power'; // 'power' | 'energy'
+const BATTERY_STALE_SEC = 10 * 60;  // keep last good battery reading this long
+let lastBattery = null;        // last battery reading that had a real SoC
 let liveSnapshot = null;    // last /devices snapshot (kW values)
 let lastTotals   = null;    // last /history period_totals
 
@@ -1580,6 +1598,21 @@ function applyIndependence(t) {
 function renderBattery() {
   if (!liveSnapshot) return;
   const s = liveSnapshot;
+
+  // "Updated" stamp: when the battery reading was actually fetched.
+  const asOf = document.getElementById('batteryAsOf');
+  if (asOf) {
+    if (s.batteryTs == null) {
+      asOf.textContent = '';
+      asOf.className = 'section-meta';
+    } else {
+      const t = new Date(s.batteryTs * 1000)
+        .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      const stale = (Date.now() / 1000 - s.batteryTs) > 90;
+      asOf.textContent = (stale ? 'last reading ' : 'updated ') + t;
+      asOf.className = 'section-meta' + (stale ? ' stale' : '');
+    }
+  }
 
   // SoC card
   const soc = s.batterySoc;
