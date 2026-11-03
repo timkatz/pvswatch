@@ -64,6 +64,10 @@ DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(os.path.abspath
 # pre-seeded synthetic history. Used by the local test rig (no LAN access
 # to a real PVS needed). See fixtures/ and pvswatch.sh test.
 MOCK_PVS = os.environ.get("MOCK_PVS", "0") == "1"
+# MOCK_HISTORY_DAYS=400 (mock mode only) skips the real-data fixture and
+# generates that many days of synthetic history instead, so every range tab
+# (90D, 1Y, ALL...) has data. 0 (default) keeps the 5-day fixture/curve seed.
+MOCK_HISTORY_DAYS = int(os.environ.get("MOCK_HISTORY_DAYS", "0") or 0)
 FIXTURES_DIR = os.environ.get("FIXTURES_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
 
 # Outage tracking. PVS/WiFi outages are derived from gaps in `readings`
@@ -1389,7 +1393,8 @@ def _seed_mock_history():
 
     # Two-tier fixture: prefer .live (auto-refreshed from asgard before each
     # test run) over the committed baseline. Both are gated by FIXTURES_DIR.
-    for name in ("history_seed.live.sqlite", "history_seed.sqlite"):
+    for name in (() if MOCK_HISTORY_DAYS > 0
+                 else ("history_seed.live.sqlite", "history_seed.sqlite")):
         candidate = os.path.join(FIXTURES_DIR, name)
         if os.path.exists(candidate) and _fixture_has_readings(candidate):
             logger.info("Seeding from fixture %s", candidate)
@@ -1397,14 +1402,35 @@ def _seed_mock_history():
             _seed_from_fixture(candidate)
             return
 
-    logger.info("No history_seed fixture found in %s — using synthetic curves", FIXTURES_DIR)
+    if MOCK_HISTORY_DAYS > 0:
+        logger.info("Seeding %d days of synthetic history", MOCK_HISTORY_DAYS)
+    else:
+        logger.info("No history_seed fixture found in %s — using synthetic curves", FIXTURES_DIR)
     import math
-    DAYS = 5
+    DAYS = MOCK_HISTORY_DAYS or 5
+    FINE_DAYS = 7          # 5-minute rows for the last week...
+    COARSE_INTERVAL = 900  # ...15-minute rows before that, to keep the DB small
     INTERVAL = 300
-    rows_per_day = 86400 // INTERVAL
-    total_rows = DAYS * rows_per_day
     now = time.time()
     start_ts = now - DAYS * 86400
+
+    # Timestamps, oldest first. In the long mode older data is coarser.
+    stamps = []
+    t = start_ts
+    fine_from = now - FINE_DAYS * 86400
+    while t < now:
+        stamps.append(t)
+        t += INTERVAL if (t >= fine_from or DAYS <= FINE_DAYS) else COARSE_INTERVAL
+    total_rows = len(stamps)
+
+    def _scale(ts):
+        """Seasonal + per-day weather factor for the long mode (1.0 otherwise)."""
+        if MOCK_HISTORY_DAYS <= 0:
+            return 1.0
+        doy = (ts // 86400) % 365
+        season = 0.75 + 0.25 * math.cos(2 * math.pi * (doy - 172) / 365.0)  # peak ~Jun 21
+        weather = 0.55 + 0.45 * (((ts // 86400) * 2654435761) % 1000) / 1000.0
+        return season * weather
 
     lt_solar = 12000.0
     lt_home = 8000.0
@@ -1412,11 +1438,15 @@ def _seed_mock_history():
     lt_battery = 1200.0
 
     rows = []
-    for i in range(total_rows):
-        ts = start_ts + i * INTERVAL
+    prev_ts = start_ts
+    for ts in stamps:
         pv, cons, bat = _mock_curve(ts)
+        pv *= _scale(ts)
+        if pv <= 3.0 and bat < 0:
+            bat = 0.0  # no battery charging on dim days
         net_kw = cons - pv - bat
-        delta_h = INTERVAL / 3600.0
+        delta_h = (ts - prev_ts or INTERVAL) / 3600.0
+        prev_ts = ts
         lt_solar += pv * delta_h
         lt_home += cons * delta_h
         lt_grid_net += net_kw * delta_h
@@ -1438,9 +1468,10 @@ def _seed_mock_history():
     panel_rows = []
     # One panel snapshot per hour (not every 5 min) — keeps the seeded DB
     # small while still giving the panel-drilldown view enough buckets.
-    for i in range(0, total_rows, 12):
-        ts = start_ts + i * INTERVAL
+    panel_from = max(start_ts, now - FINE_DAYS * 86400)
+    for ts in [x for x in stamps if x >= panel_from][::12]:
         pv, _, _ = _mock_curve(ts)
+        pv *= _scale(ts)
         per_panel_w = (pv * 1000) / 16
         for serial in panel_serials:
             jitter = ((hash(serial) % 100) - 50) / 1000.0

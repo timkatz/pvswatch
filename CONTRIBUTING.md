@@ -25,6 +25,10 @@ the local API. Including it up front saves a back-and-forth.
    - `docker compose build` — make sure the container still builds
    - `./pvswatch.sh test` — Playwright e2e suite against a mock-mode
      container (no real PVS gateway needed). Requires Docker + Node.js.
+   - To click around the dashboard by hand with every date range
+     populated (90D, 1Y, ALL), run the mock server with
+     `MOCK_PVS=1 MOCK_HISTORY_DAYS=400`. This generates about a year of
+     synthetic history instead of the 5-day fixture. The tests don't use it.
 4. Open a PR against `main`. Describe **what** changed and **why**, and
    reference the issue you're solving.
 
