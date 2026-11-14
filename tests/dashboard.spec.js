@@ -7,6 +7,9 @@ const { test, expect } = require('@playwright/test');
 // baseline), so tests that depend on the span derive it from /health
 // rather than assuming a fixed number of days.
 
+// Open a section from the sidebar / tab bar.
+const openView = (page, view) => page.locator(`#appNav a[data-view="${view}"]`).click();
+
 test.beforeEach(async ({ page }) => {
   // Surface JS errors as test failures rather than hidden console noise.
   page.on('pageerror', (err) => { throw err; });
@@ -77,6 +80,7 @@ test('outages API + card: mock grid outage is listed and summarized', async ({ p
   expect(grid[0].duration_s).toBe(240);
   expect(body.summary.grid.count).toBe(grid.length);
 
+  await openView(page, 'outages');
   await expect(page.locator('#og_gridCount')).toHaveText(String(body.summary.grid.count));
   await expect(page.locator('#og_pvsCount')).toHaveText(String(body.summary.pvs.count));
   await expect(page.locator('#outageList li[data-kind="grid"]').first()).toContainText('4m');
@@ -116,10 +120,11 @@ test('hovering an outage band shows its window', async ({ page }) => {
     && powerChart.data.datasets.some((d) => d._outageKind));
   const pt = await page.evaluate(() => ({ a: powerChart.chartArea, n: powerChart.data.labels.length }));
   expect(pt.n).toBeGreaterThan(1);
-  // Sweep across the chart until the tip appears.
+  // Sweep across the chart until the tip appears. Right to left: the mock
+  // outage is near "now", at the right edge.
   const box = await page.locator('#powerChart').boundingBox();
   let shown = false;
-  for (let px = pt.a.left; px <= pt.a.right && !shown; px += 2) {
+  for (let px = pt.a.right; px >= pt.a.left && !shown; px -= 2) {
     await page.mouse.move(box.x + px, box.y + (pt.a.top + pt.a.bottom) / 2);
     shown = (await page.locator('.outage-tip').isVisible().catch(() => false))
       && (await page.locator('.outage-tip').innerText()).includes('Power outage');
@@ -131,15 +136,16 @@ test('hovering an outage band shows its window', async ({ page }) => {
   await expect(page.locator('.outage-tip')).toBeHidden();
 });
 
-test('battery charge source label: solar vs grid', async ({ page }) => {
+test('battery charge source label comes from the API', async ({ page }) => {
+  // The rule itself is unit-tested in tests/test_now.py; this checks the wording.
   await page.waitForFunction(() => typeof liveSnapshot !== 'undefined' && liveSnapshot);
-  const label = (prod, cons, bat) => page.evaluate(([p, c, b]) => {
-    Object.assign(liveSnapshot, { prodKw: p, consKw: c, batteryKw: b }); renderBattery();
+  const label = (src) => page.evaluate((c) => {
+    Object.assign(liveSnapshot, { batteryKw: -1, batteryState: 'charging', chargeSource: c }); renderBattery();
     return document.getElementById('bat_flowSub').textContent;
-  }, [prod, cons, bat]);
-  expect(await label(5, 1, -2)).toBe('storing solar');
-  expect(await label(0.5, 1.2, -0.8)).toBe('from grid');
-  expect(await label(1.5, 1.0, -0.8)).toBe('from solar + grid');
+  }, src);
+  expect(await label('solar')).toBe('storing solar');
+  expect(await label('grid')).toBe('from grid');
+  expect(await label('solar+grid')).toBe('from solar + grid');
 });
 
 test('Net Cost card: headline, groups, settle-up spread and notes', async ({ page, request }) => {
@@ -153,6 +159,7 @@ test('Net Cost card: headline, groups, settle-up spread and notes', async ({ pag
   const accrued = fin.bills.reduce((s, b) => s + b.accrued, 0);
   expect(Math.abs(cash - accrued)).toBeLessThan(0.01);
 
+  await openView(page, 'money');
   await expect(page.locator('#finHeadline .fin-tile')).toHaveCount(3);
   await expect(page.locator('#finHeadline')).toContainText(/so far/);
   await expect(page.locator('#finHeadline')).toContainText(/Since /);
@@ -167,6 +174,7 @@ test('Net Cost card: headline, groups, settle-up spread and notes', async ({ pag
 
 test('Net Cost card: add, edit and delete a bill by hand', async ({ page }) => {
   await page.waitForFunction(() => typeof finData !== 'undefined' && finData);
+  await openView(page, 'money');
   await page.locator('#finAddBill').click();
   await page.locator('#fm_form [name="bill_date"]').fill('2001-02-03');
   await page.locator('#fm_form [name="period_start"]').fill('2001-01-01');
@@ -218,6 +226,7 @@ test('time-of-use strip and schedule render from the plan', async ({ page, reque
   expect(tou.today.reduce((n, s) => n + (s.end - s.start), 0)).toBe(24);
   await expect(page.locator('#touNow')).toBeVisible();
   await expect(page.locator('#touNow')).toContainText(tou.now.name);
+  await openView(page, 'money');
   await expect(page.locator('#touToday .tou-seg')).toHaveCount(tou.today.length);
   await expect(page.locator('#touTips li').first()).toContainText('Cheapest');
 });
@@ -271,7 +280,7 @@ test('API v1 settings: read, change, validate, reset', async ({ request }) => {
   const s = await (await request.get('/api/v1/settings')).json();
   const stale = s.settings.find(x => x.key === 'ALERT_STALE_MINS');
   expect(stale.value).toBe(stale.default);
-  expect(s.battery_mode.options.BACKUP_ONLY).toBe('Reserve');
+  expect(s.battery_mode.options.map(o => o.label)).toEqual(['Self-Supply', 'Cost Savings', 'Reserve']);
   expect(JSON.stringify(s)).not.toMatch(/token|PVS_PASS/i);
 
   let r = await request.patch('/api/v1/settings', { data: { ALERT_STALE_MINS: 45, COST_PER_KWH: 0.4 } });
@@ -295,4 +304,43 @@ test('API v1 settings: read, change, validate, reset', async ({ request }) => {
 
   r = await request.patch('/api/v1/settings', { headers: { 'Sec-Fetch-Site': 'cross-site' }, data: { ALERT_STALE_MINS: 50 } });
   expect(r.status()).toBe(403);
+});
+
+test('sidebar switches views and remembers the section in the URL', async ({ page }) => {
+  await expect(page.locator('.view[data-view="now"]')).toBeVisible();
+  await expect(page.locator('.view[data-view="money"]')).toBeHidden();
+  await openView(page, 'panels');
+  await expect(page).toHaveURL(/#panels$/);
+  await expect(page.locator('#panels .panel').first()).toBeVisible();
+  await expect(page.locator('.view[data-view="now"]')).toBeHidden();
+  await expect(page.locator('#appNav a[data-view="panels"]')).toHaveAttribute('aria-current', 'page');
+  await page.goto('/#system');
+  await expect(page.locator('#sysInfo')).toContainText('PV Supervisor');
+});
+
+test('settings screen: edit, save, reset', async ({ page }) => {
+  await openView(page, 'settings');
+  const input = page.locator('#set_ALERT_STALE_MINS');
+  await expect(input).toHaveValue('30');
+  await input.fill('40');
+  await page.locator('#setSave').click();
+  await expect(page.locator('#setMsg')).toHaveText('Saved');
+  await expect(page.locator('#set_ALERT_STALE_MINS')).toHaveValue('40');
+  await page.locator('[data-reset="ALERT_STALE_MINS"]').click();
+  await expect(page.locator('#set_ALERT_STALE_MINS')).toHaveValue('30');
+  await expect(page.locator('[data-reset="ALERT_STALE_MINS"]')).toHaveCount(0);
+  // A bad value is refused and shown.
+  await page.locator('#set_ALERT_BATTERY_PCT').fill('500');
+  await page.locator('#setSave').click();
+  await expect(page.locator('#setMsg')).toContainText('Not saved');
+  await expect(page.locator('#setStatus')).toContainText('mock data');
+  await expect(page.locator('#setBatModes .chart-mode.active')).toHaveText('Self-Supply');
+});
+
+test('phone width: tab bar at the bottom, no sideways scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const nav = await page.locator('#appNav').boundingBox();
+  expect(nav.y + nav.height).toBeGreaterThan(800);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
 });

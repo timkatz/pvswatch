@@ -3656,7 +3656,9 @@ def _settings_view():
         })
     return {
         "settings": items,
-        "battery_mode": {"value": _battery_mode["value"], "options": BATTERY_MODES},
+        # A list, not a dict: jsonify sorts keys and the order matters here.
+        "battery_mode": {"value": _battery_mode["value"],
+                         "options": [{"value": k, "label": v} for k, v in BATTERY_MODES.items()]},
         # What's wired up, for the Settings screen to explain. No secrets.
         "status": {
             "mock": MOCK_PVS,

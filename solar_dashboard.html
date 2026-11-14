@@ -42,6 +42,89 @@
 
     .shell { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
 
+    /* ── App layout: sidebar on wide screens, tab bar on phones ── */
+    .app-nav { display: flex; gap: 0.25rem; }
+    .app-nav a {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.55rem 0.75rem; border-radius: var(--radius-sm);
+      color: var(--text-dim); text-decoration: none; font-size: 0.85rem; font-weight: 600;
+    }
+    .app-nav a:hover { background: var(--bg-card-hover); color: var(--text); }
+    .app-nav a[aria-current="page"] { background: var(--accent-glow); color: var(--accent); }
+    .app-nav .ic { width: 1.2rem; height: 1.3rem; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; line-height: 1; }
+    .view[hidden] { display: none; }
+    @media (min-width: 900px) {
+      .shell {
+        max-width: 1180px;
+        display: grid;
+        grid-template-columns: 180px minmax(0, 1fr);
+        column-gap: 1.75rem;
+      }
+      .shell > header { grid-column: 1 / -1; }
+      .app-nav {
+        flex-direction: column; position: sticky; top: 1rem; align-self: start;
+        padding-top: 1rem;
+      }
+      .app-main { min-width: 0; }
+    }
+    @media (max-width: 899px) {
+      body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+      .app-nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+        justify-content: space-around; gap: 0;
+        padding: 0.35rem 0.25rem calc(0.35rem + env(safe-area-inset-bottom));
+        background: var(--bg-card); border-top: 1px solid var(--border);
+      }
+      .app-nav a {
+        flex-direction: column; gap: 0.15rem; padding: 0.3rem 0.2rem;
+        font-size: 0.62rem; min-width: 0; flex: 1; text-align: center;
+      }
+      .app-nav a[aria-current="page"] { background: none; }
+    }
+
+    /* ── Settings ── */
+    .set-group {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1rem; margin-bottom: 0.8rem;
+    }
+    .set-group h3 {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-dim); font-weight: 600; margin-bottom: 0.6rem;
+    }
+    .set-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: 0.5rem 0; border-top: 1px solid var(--border);
+    }
+    .set-row:first-of-type { border-top: 0; }
+    .set-row label { font-size: 0.85rem; }
+    .set-row .hint { display: block; font-size: 0.7rem; color: var(--text-dim); margin-top: 0.1rem; }
+    .set-row .ctl { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+    .set-row input {
+      width: 6.5rem; padding: 0.35rem 0.5rem; font: inherit; font-size: 0.85rem;
+      color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      text-align: right;
+    }
+    .set-row input[type="text"] { width: 7.5rem; text-align: left; }
+    .set-row textarea {
+      width: 100%; min-height: 8rem; padding: 0.5rem; font: 0.75rem ui-monospace, monospace;
+      color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    }
+    .set-row.json { flex-direction: column; align-items: stretch; }
+    .set-row .unit { font-size: 0.75rem; color: var(--text-dim); min-width: 2.5rem; }
+    .set-row .reset {
+      background: none; border: 0; color: var(--text-dim); font: inherit; font-size: 0.7rem;
+      cursor: pointer; text-decoration: underline;
+    }
+    .set-actions { display: flex; gap: 0.6rem; align-items: center; margin: 0.4rem 0 1rem; }
+    .set-actions .msg { font-size: 0.75rem; color: var(--text-dim); }
+    .set-actions .msg.err { color: var(--red); }
+    .set-status { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.5rem; }
+    .set-status div {
+      font-size: 0.75rem; color: var(--text-dim); background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.5rem 0.7rem;
+    }
+    .set-status b { color: var(--text); font-weight: 600; }
+
     /* ── Header ────────────────────────────────── */
     header {
       display: flex;
@@ -848,8 +931,20 @@
       </div>
     </header>
 
+    <nav class="app-nav" id="appNav" aria-label="Sections">
+      <a href="#now" data-view="now"><span class="ic" aria-hidden="true">⚡</span><span>Now</span></a>
+      <a href="#money" data-view="money"><span class="ic" aria-hidden="true">💵</span><span>Money</span></a>
+      <a href="#outages" data-view="outages"><span class="ic" aria-hidden="true">🔌</span><span>Outages</span></a>
+      <a href="#panels" data-view="panels"><span class="ic" aria-hidden="true">▦</span><span>Panels</span></a>
+      <a href="#system" data-view="system"><span class="ic" aria-hidden="true">ⓘ</span><span>System</span></a>
+      <a href="#settings" data-view="settings"><span class="ic" aria-hidden="true">⚙</span><span>Settings</span></a>
+    </nav>
+
+    <main class="app-main">
+
     <div id="warning"></div>
 
+    <section class="view" data-view="now">
     <div class="independence" id="independenceBadge" style="display:none">
       <span class="pct" id="indPct">—</span>
       <span>energy independence</span>
@@ -1005,6 +1100,9 @@
     </div>
     <div class="units-grid" id="batteryUnits"></div>
 
+    </section>
+
+    <section class="view" data-view="money">
     <div class="section-head">
       <h2>Savings</h2>
       <span id="savingsScope" style="font-size:0.75rem;color:var(--text-dim)"></span>
@@ -1075,6 +1173,9 @@
     <div class="fin-table-wrap"><table class="fin-table" id="rateTable"></table></div>
     <div class="fin-help" id="rateHelp"></div>
 
+    </section>
+
+    <section class="view" data-view="outages">
     <div class="section-head">
       <h2>Outages</h2>
       <span id="outageScope" style="font-size:0.75rem;color:var(--text-dim)"></span>
@@ -1091,6 +1192,18 @@
     </div>
     <ul class="outage-list" id="outageList"></ul>
 
+    </section>
+
+    <section class="view" data-view="panels">
+    <div class="section-head">
+      <h2>Inverter Panels</h2>
+      <span id="panelCount" style="font-size:0.75rem;color:var(--text-dim)"></span>
+    </div>
+    <div class="panel-grid" id="panels"></div>
+
+    </section>
+
+    <section class="view" data-view="system">
     <div class="section-head"><h2>Voltage</h2></div>
     <div class="sub-metrics" id="voltageRow">
       <div class="sub-metric"><span class="label">System (L1+L2)</span><span class="value" id="v_sysV">—</span></div>
@@ -1105,14 +1218,17 @@
       <div class="sub-metric"><span class="label">Frequency</span><span class="value" id="v_freq">—</span></div>
     </div>
 
-    <div class="section-head">
-      <h2>Inverter Panels</h2>
-      <span id="panelCount" style="font-size:0.75rem;color:var(--text-dim)"></span>
-    </div>
-    <div class="panel-grid" id="panels"></div>
-
     <div class="section-head"><h2>System Information</h2></div>
     <div class="info-grid" id="sysInfo"></div>
+
+    </section>
+
+    <section class="view" data-view="settings">
+      <div class="section-head"><h2>Settings</h2><span class="section-meta" id="setMeta"></span></div>
+      <div class="set-group" id="setBattery"></div>
+      <div id="setGroups"></div>
+      <div class="set-status" id="setStatus"></div>
+    </section>
 
     <div class="footer">
       <span id="updated">Waiting for data…</span>
@@ -1121,6 +1237,7 @@
       <br><br>
       PVS Watch
     </div>
+    </main>
   </div>
 
   <!-- Panel drilldown modal -->
@@ -1177,11 +1294,6 @@ let stopFetch = false;
 let refreshTmrID = null;
 let firstLoad = true;
 
-// Credentials live server-side only (.env). The proxy ignores query params
-// on /devices, so never put user/pass in the URL — it lands in access logs.
-function buildProxyUrl() {
-  return '/devices';
-}
 
 function setStatus(state, text) {
   const dot = document.getElementById('statusDot');
@@ -1255,229 +1367,64 @@ async function fetchData() {
   fetchSunvault();
   setStatus('live' , firstLoad ? 'Loading' : 'Refreshing');
 
-  const URL_AUTH = buildProxyUrl();
-  let res = null;
-  let urlStr = "";
-
   try {
-    urlStr = URL_AUTH;
-    res = await fetch(URL_AUTH, { method: 'GET' });
-
+    // /api/v1/now does all the math; this just puts it on screen.
+    const res = await fetch('/api/v1/now');
     if (!res.ok) {
-      const text = await res.text().catch(()=>'');
-      setStatus('error', 'HTTP ' + res.status);
-      document.getElementById('updated').textContent = 'Error: HTTP ' + res.status + ' — ' + text.substring(0, 100);
+      const j = await res.json().catch(() => ({}));
+      setStatus(res.status === 503 ? 'live' : 'error', res.status === 503 ? 'Waiting for PVS' : 'HTTP ' + res.status);
+      document.getElementById('updated').textContent = j.error || ('Error: HTTP ' + res.status);
       return;
     }
-
-    const data = await res.json();
-    const devices = data.devices || [];
-
-    const meterP = devices.find(d => d.TYPE === "PVS5-METER-P");
-    const meterC = devices.find(d => d.TYPE === "PVS5-METER-C");
-    const gateway = devices.find(d => d.DEVICE_TYPE === "PVS");
-    const inverters = devices.filter(d => d.TYPE === "SOLARBRIDGE");
-
-    const pKw = parseFloat(meterP?.p_3phsum_kw || 0);
-    const cKw = parseFloat(meterC?.p_3phsum_kw || 0);
-    const prodKw = pKw <= 0.005 ? 0 : pKw;
-    const consKw = cKw <= 0.005 ? 0 : cKw;
-    const netKw = prodKw - consKw;
-    const lifetimeKwh = parseFloat(meterP?.net_ltea_3phsum_kwh || 0);
-    const sysV = parseFloat(meterC?.v12_v || 0);
-    const l1V = parseFloat(meterC?.v1n_v || 0);
-    const l2V = parseFloat(meterC?.v2n_v || 0);
-    const pfP = parseFloat(meterP?.tot_pf_rto || 0);
-    const pfC = parseFloat(meterC?.tot_pf_rto || 0);
-    const freq = parseFloat(meterC?.freq_hz || 0);
-
-    // Capture live snapshot — used when range === 'live' for hero cards.
-    // Grid value comes from the PVS revenue meter (data.grid.p_kw) when
-    // available; this is more accurate than deriving from energy balance.
-    // Sign convention: gridKw > 0 = importing, < 0 = exporting (PVS net_p).
-    // The PVS sometimes returns no battery block (e.g. just after it drops
-    // off the LAN and re-registers). Keep the last good reading for a few
-    // minutes so the cards don't blank, and remember when it was fetched.
-    const nowSec = Date.now() / 1000;
-    const bat = data.battery;
-    if (bat && Number.isFinite(bat.soc)) {
-      lastBattery = { kw: bat.p_kw ?? null, soc: bat.soc,
-                      backupMin: bat.backup_min ?? null,
-                      midstate: bat.midstate ?? null, ts: nowSec };
-    }
-    const batFresh = lastBattery && (nowSec - lastBattery.ts) <= BATTERY_STALE_SEC;
-    const lb = batFresh ? lastBattery : null;
+    const n = await res.json();
+    const b = n.battery;
     liveSnapshot = {
-      prodKw, consKw, netKw, lifetimeKwh,
-      batteryKw:  lb?.kw        ?? null,
-      batterySoc: lb?.soc       ?? null,
-      backupMin:  lb?.backupMin ?? null,
-      midstate:   lb?.midstate  ?? null,
-      batteryTs:  lastBattery?.ts ?? null,
-      gridKw:     data.grid?.p_kw           ?? null,
-      gridL1:     meterC?.p1_kw != null ? parseFloat(meterC.p1_kw) : null,
-      gridL2:     meterC?.p2_kw != null ? parseFloat(meterC.p2_kw) : null,
-      units:      data.battery?.units       ?? null,
-      ts: Date.now() / 1000,
+      prodKw: n.solar_kw, consKw: n.home_kw, lifetimeKwh: n.lifetime_kwh,
+      gridKw: n.grid.kw, gridDirection: n.grid.direction,
+      batteryKw:  b ? b.kw : null,
+      batterySoc: b ? b.soc : null,
+      backupMin:  b ? b.backup_min : null,
+      batteryState: b ? b.state : null,
+      chargeSource: b ? b.charge_source : null,
+      batteryTs: b ? b.fetched_at : null,
+      batteryStale: b ? b.stale : false,
+      sides: n.house_sides,
+      flow: n.flow,
+      ts: n.ts,
     };
 
-    // Lifetime is always lifetime regardless of selected range
     {
-      const e = fmtEnergy(lifetimeKwh);
+      const e = fmtEnergy(n.lifetime_kwh || 0);
       document.getElementById('v_lifetime').innerHTML = e.value + '<span class="unit"> ' + e.unit + '</span>';
     }
 
     // Hero cards (Solar/Home/Battery/Grid) in live mode; otherwise owned by applyTotals
     if (currentRange === 'live') { applyLive(); renderFlow(); }
-
-    // Battery section always reflects latest live data
     renderBattery();
 
-    // Voltage
-    document.getElementById('v_sysV').textContent = fmt(sysV, 1) + ' V';
-    document.getElementById('v_l1V').textContent = fmt(l1V, 1) + ' V';
-    document.getElementById('v_l2V').innerHTML = fmt(l2V, 1) + ' V';
+    const el = n.electrical;
+    document.getElementById('v_sysV').textContent = fmt(el.system_v, 1) + ' V';
+    document.getElementById('v_l1V').textContent = fmt(el.l1_v, 1) + ' V';
+    document.getElementById('v_l2V').textContent = fmt(el.l2_v, 1) + ' V';
+    document.getElementById('v_pfProd').textContent = el.pf_solar == null ? '—' : (el.pf_solar * 100).toFixed(1) + '%';
+    document.getElementById('v_pfCons').textContent = el.pf_home == null ? '—' : (el.pf_home * 100).toFixed(1) + '%';
+    document.getElementById('v_freq').textContent = el.freq_hz == null ? '—' : el.freq_hz.toFixed(2) + ' Hz';
 
-    // Power factor
-    const pfPdisp = isNaN(pfP) || Math.abs(pfP) < 0.001 ? '—' : (pfP * 100).toFixed(1) + '%';
-    const pfCdisp = isNaN(pfC) ? '—' : (pfC * 100).toFixed(1) + '%';
-    document.getElementById('v_pfProd').textContent = pfPdisp;
-    document.getElementById('v_pfCons').textContent = pfCdisp;
-    document.getElementById('v_freq').textContent = isNaN(freq) ? '—' : freq.toFixed(2) + ' Hz';
+    renderPanels(n.panels);
 
-    // Inverter panels — classify each panel's state
-    // SunPower PVS6 quirk: panels report "Error" at night (powerline comms
-    // need DC power). Detect nighttime: all errors + near-zero production.
-    const hasPowerData = inverters.some(i => parseFloat(i.p_3phsum_kw || 0) > 0.001 || parseFloat(i.vln_3phavg_v || 0) > 0.1);
-    const allWorking = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'working');
-    const allError = inverters.every(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'error');
-    const errorCount = inverters.filter(i => (i.STATEDESCR || i.STATE || '').toLowerCase() === 'error').length;
-    const prodKwAbs = Math.abs(prodKw);
-    const isNighttime = allError && prodKwAbs < 0.05 && !hasPowerData;
-
-    document.getElementById('panelCount').textContent = inverters.length + ' panels';
-
-    // Helper for the always-on lifetime line at the bottom of every panel card
-    const lifetimeLine = (inv) => {
-      const lt = parseFloat(inv.ltea_3phsum_kwh || 0);
-      if (!lt || isNaN(lt)) return '';
-      const e = fmtEnergy(lt);
-      return `<div class="lifetime">${e.value} ${e.unit}</div>`;
-    };
-    const panelHead = (inv) => {
-      const sn = inv.SERIAL || '';
-      const last = sn.slice(-6);
-      return `data-serial="${sn}" title="Click for details — last 6 of serial: ${last}"`;
-    };
-
-    if (inverters.length === 0) {
-      document.getElementById('panels').innerHTML =
-        '<div class="panel" style="grid-column:1/-1;border-color:var(--accent);background:var(--accent-glow)">No solar panels detected</div>';
-    } else if (isNighttime) {
-      // Nighttime: all panels report "Error" because SunPower PVS6 powerline
-      // comms don't work when panels aren't producing. This is normal.
-      document.getElementById('panels').innerHTML =
-        `<div class="panel" style="grid-column:1/-1;border-color:var(--blue);background:var(--blue-glow);margin-bottom:0.5rem">
-          <div class="watts" style="color:var(--cyan)">🌙 ${inverters.length} panels — nighttime idle</div>
-          <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">Panels are offline (normal after dark — powerline comms require daylight)</div>
-        </div>` +
-        inverters.map(inv => `<div class="panel clickable" ${panelHead(inv)}>
-          <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
-          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || inv.MODEL || ''}</div>
-          <div style="font-size:0.6rem;color:var(--text-dim)">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''} · FW ${inv.SWVER || '?'}</div>
-          ${lifetimeLine(inv)}
-        </div>`).join('');
-    } else if (allError && !hasPowerData) {
-      // All panels in error state with no power data — comms/hardware failure
-      document.getElementById('panels').innerHTML =
-        `<div class="panel" style="grid-column:1/-1;border-color:var(--red);background:var(--red-glow);margin-bottom:0.5rem">
-          <div class="watts" style="color:var(--red)">⚠ All ${inverters.length} panels in error</div>
-          <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">No communication with inverters — check PVS gateway connections</div>
-        </div>` +
-        inverters.map(inv => `<div class="panel clickable" style="border-color:rgba(239,68,68,0.25)" ${panelHead(inv)}>
-          <div class="watts" style="color:var(--text-dim)">— W</div>
-          <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || inv.MODEL || ''}</div>
-          <div style="font-size:0.6rem;color:var(--text-dim)">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''} · FW ${inv.SWVER || '?'}</div>
-          <div class="status err" style="margin-top:0.2rem">${inv.STATEDESCR || inv.STATE || '—'}</div>
-          ${lifetimeLine(inv)}
-        </div>`).join('');
-    } else if (!hasPowerData && allWorking) {
-      // All panels working but no power (nighttime)
-      document.getElementById('panels').innerHTML = inverters.map(inv => `<div class="panel clickable" ${panelHead(inv)}>
-        <div class="watts" style="color:var(--text-dim)">🌙 Idle</div>
-        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.25rem">${inv.PANEL || inv.MODEL || ''}</div>
-        <div style="font-size:0.65rem;color:var(--text-dim);margin-top:0.15rem">${inv.SERIAL ? inv.SERIAL.slice(-6) : ''}</div>
-        <div class="status ok" style="margin-top:0.2rem">Idle</div>
-        ${lifetimeLine(inv)}
-      </div>`).join('');
-    } else {
-      // Mixed or active production — show per-panel detail
-      const maxW = Math.max(...inverters.map(i => parseFloat(i.p_3phsum_kw || 0) * 1000));
-      document.getElementById('panels').innerHTML = inverters.map(inv => {
-        const kw = parseFloat(inv.p_3phsum_kw || 0);
-        const w = Math.round(kw * 1000);
-        const vac = parseFloat(inv.vln_3phavg_v || 0);
-        const vdc = parseFloat(inv.v_mppt1_v || 0);
-        const adc = parseFloat(inv.i_mppt1_a || 0);
-        const temp = parseFloat(inv.t_htsnk_degc || 0);
-        const state = (inv.STATEDESCR || inv.STATE || '').toLowerCase();
-        const isNoop = (inv.OPERATION || '').toLowerCase() === 'noop';
-        const ok = state === 'working';
-        // During daytime production: an "error" panel with noop is a real issue
-        // At night/low production: same state is just idle
-        const isLikelyIdle = !ok && isNoop && prodKwAbs < 0.05;
-        const isLow = maxW > 0 && w > 0 && w < 0.85 * maxW;
-        const cls = (isLow ? 'panel low-perf' : 'panel') + ' clickable';
-        const borderCls = (!ok && !isLikelyIdle) ? ';border-color:rgba(239,68,68,0.25)' : '';
-        let wattsStr;
-        if (ok && w > 0) wattsStr = isNaN(w) ? '—' : w + ' W';
-        else if (ok || isLikelyIdle) wattsStr = '🌙 Idle';
-        else wattsStr = '⚠ Error';
-        const detailParts = [];
-        if (vac > 0) detailParts.push('AC ' + vac.toFixed(1) + 'V');
-        if (vdc > 0) detailParts.push('DC ' + vdc.toFixed(1) + 'V');
-        if (adc > 0) detailParts.push(adc.toFixed(2) + 'A');
-        if (temp) detailParts.push('🌡️ ' + temp + '°C');
-        const detailHtml = detailParts.length ? '<div class="detail">' + detailParts.join(' · ') + '</div>' : '';
-        return `<div class="${cls}" style="${borderCls}" ${panelHead(inv)}>
-          <div class="watts" ${(!ok && !isLikelyIdle) ? 'style="color:var(--red)"' : ''}>${wattsStr}</div>
-          <div class="status ${ok ? 'ok' : (isLikelyIdle ? 'ok' : 'err')}">${isLikelyIdle ? 'Idle' : (inv.STATEDESCR || inv.STATE || '—')}</div>
-          ${detailHtml}
-          <div style="font-size:0.6rem;color:var(--text-dim);margin-top:0.15rem">${inv.PANEL || ''}</div>
-          ${lifetimeLine(inv)}
-        </div>`;
-      }).join('');
-    }
-
-    // System info
+    const sy = n.system;
     const info = [
-      ['Gateway', gateway?.MODEL || '—'],
-      ['IP', params.get('ip') || '—'],
-      ['Serial', gateway?.SERIAL || '—'],
-      ['HW', gateway?.HWVER || '—'],
-      ['Firmware', gateway?.SWVER || '—'],
-      ['State', gateway?.STATE || '—'],
-      ['Memory', gateway?.dl_mem_used ? gateway.dl_mem_used + ' KiB' : '—'],
-      ['Panel ID', gateway?.panid || '—'],
-      ['CT Type', meterC?.subtype || '—'],
+      ['Gateway', sy.model], ['Serial', sy.serial], ['HW', sy.hw], ['Firmware', sy.firmware],
+      ['State', sy.state], ['Memory', sy.mem_kib ? sy.mem_kib + ' KiB' : null],
+      ['Panel ID', sy.panel_id], ['CT Type', sy.ct_type],
     ];
     document.getElementById('sysInfo').innerHTML = info.map(([k, v]) =>
-      `<div class="info-item"><span class="k">${k}</span><span class="v">${v}</span></div>`
+      `<div class="info-item"><span class="k">${k}</span><span class="v">${esc(v ?? '—')}</span></div>`
     ).join('');
 
-    // Timestamp
-    const ut = meterP?.CURTIME || '';
-    if (ut) {
-      const p = ut.split(',');
-      if (p.length >= 6) {
-        const d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2], +p[3], +p[4], +p[5]));
-        document.getElementById('updated').textContent = 'Updated ' + d.toLocaleString();
-      } else {
-        document.getElementById('updated').textContent = 'Updated ' + ut;
-      }
-    } else {
-      document.getElementById('updated').textContent = 'Updated just now';
-    }
+    const t = n.data_time || n.fetched_at;
+    document.getElementById('updated').textContent = t
+      ? 'Updated ' + new Date(t * 1000).toLocaleString() : 'Updated just now';
 
     setStatus('live', 'Live');
     document.getElementById('warning').style.display = 'none';
@@ -1491,6 +1438,55 @@ async function fetchData() {
   }
 }
 
+// Panel grid from /api/v1/now panels: mode says the overall state (night,
+// comms error, idle, producing); each item carries its own status.
+function renderPanels(p) {
+  document.getElementById('panelCount').textContent = p.count + ' panels';
+  const grid = document.getElementById('panels');
+  if (!p.count) {
+    grid.innerHTML = '<div class="panel" style="grid-column:1/-1;border-color:var(--accent);background:var(--accent-glow)">No solar panels detected</div>';
+    return;
+  }
+  const head = (i) => `data-serial="${esc(i.serial)}" title="Click for details — last 6 of serial: ${esc(i.serial.slice(-6))}"`;
+  const life = (i) => {
+    if (!i.lifetime_kwh) return '';
+    const e = fmtEnergy(i.lifetime_kwh);
+    return `<div class="lifetime">${e.value} ${e.unit}</div>`;
+  };
+  const tag = (i) => `${esc(i.serial.slice(-6))}${i.firmware ? ' · FW ' + esc(i.firmware) : ''}`;
+  let banner = '';
+  if (p.mode === 'night') {
+    banner = `<div class="panel" style="grid-column:1/-1;border-color:var(--blue);background:var(--blue-glow);margin-bottom:0.5rem">
+      <div class="watts" style="color:var(--cyan)">🌙 ${esc(p.summary)}</div>
+      <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">Panels are offline (normal after dark — powerline comms require daylight)</div>
+    </div>`;
+  } else if (p.mode === 'comms_error') {
+    banner = `<div class="panel" style="grid-column:1/-1;border-color:var(--red);background:var(--red-glow);margin-bottom:0.5rem">
+      <div class="watts" style="color:var(--red)">⚠ ${esc(p.summary)}</div>
+      <div style="font-size:0.78rem;margin-top:0.3rem;color:var(--text-dim)">No communication with inverters — check PVS gateway connections</div>
+    </div>`;
+  }
+  grid.innerHTML = banner + p.items.map(i => {
+    const err = i.status === 'error';
+    const parts = [];
+    if (i.status === 'ok') {
+      if (i.ac_v) parts.push('AC ' + i.ac_v.toFixed(1) + 'V');
+      if (i.dc_v) parts.push('DC ' + i.dc_v.toFixed(1) + 'V');
+      if (i.dc_a) parts.push(i.dc_a.toFixed(2) + 'A');
+      if (i.temp_c) parts.push('🌡️ ' + i.temp_c + '°C');
+    }
+    const watts = i.status === 'ok' ? i.w + ' W' : i.status === 'idle' ? '🌙 Idle' : (p.mode === 'comms_error' ? '— W' : '⚠ Error');
+    const status = i.status === 'idle' ? 'Idle' : (i.state || '—');
+    return `<div class="${i.low ? 'panel low-perf' : 'panel'} clickable"${err ? ' style="border-color:rgba(239,68,68,0.25)"' : ''} ${head(i)}>
+      <div class="watts"${err && p.mode !== 'comms_error' ? ' style="color:var(--red)"' : (i.status === 'idle' ? ' style="color:var(--text-dim)"' : '')}>${watts}</div>
+      <div class="status ${err ? 'err' : 'ok'}">${esc(status)}</div>
+      ${parts.length ? '<div class="detail">' + parts.join(' · ') + '</div>' : ''}
+      <div style="font-size:0.6rem;color:var(--text-dim);margin-top:0.15rem">${esc(i.model)} · ${tag(i)}</div>
+      ${life(i)}
+    </div>`;
+  }).join('');
+}
+
 function manualRefresh() {
   fetchData();
   fetchHistory();
@@ -1502,8 +1498,6 @@ function manualRefresh() {
 let powerChart = null;
 let currentRange = '24h';   // 'live' | '1h' | '6h' | '24h' | '7d' | '30d' | '90d' | '1y' | 'all'
 let currentMode  = 'power'; // 'power' | 'energy'
-const BATTERY_STALE_SEC = 10 * 60;  // keep last good battery reading this long
-let lastBattery = null;        // last battery reading that had a real SoC
 let liveSnapshot = null;    // last /devices snapshot (kW values)
 let lastTotals   = null;    // last /history period_totals
 
@@ -1543,19 +1537,11 @@ function applyLive() {
     setMetric('v_battery', bp.value, bp.unit, scope, sub, cls);
   }
 
-  // Live grid: prefer authoritative PVS net_p (data.grid.p_kw); fall back
-  // to energy-balance derivation. Apply 50W threshold for "balanced" so
-  // measurement noise doesn't flicker between import/export.
-  const gridFromPvs = s.gridKw;
-  const gridDerived = (s.consKw || 0) - (s.prodKw || 0) - (s.batteryKw || 0);
-  const gridImportKw = (gridFromPvs != null) ? gridFromPvs : gridDerived;
-  const isBalanced = Math.abs(gridImportKw) < 0.05;
-  const importing  = gridImportKw >  0.05;
-  const exporting  = gridImportKw < -0.05;
-  const gp = fmtPower(gridImportKw);
-  const gsub = isBalanced ? 'balanced' : importing ? 'importing' : 'exporting';
-  const gcls = isBalanced ? '' : importing ? 'import' : 'export';
-  setMetric('v_grid', isBalanced ? '0.0' : gp.value, 'kW', scope, gsub, gcls);
+  // Grid kW and direction (±50 W = balanced) come from /api/v1/now.
+  const dir = s.gridDirection;
+  const gp = fmtPower(s.gridKw);
+  const gcls = dir === 'importing' ? 'import' : dir === 'exporting' ? 'export' : '';
+  setMetric('v_grid', dir === 'balanced' ? '0.0' : gp.value, 'kW', scope, dir, gcls);
 }
 
 // Render hero cards from /history period_totals (kWh)
@@ -1625,9 +1611,8 @@ function renderBattery() {
     } else {
       const t = new Date(s.batteryTs * 1000)
         .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      const stale = (Date.now() / 1000 - s.batteryTs) > 90;
-      asOf.textContent = (stale ? 'last reading ' : 'updated ') + t;
-      asOf.className = 'section-meta' + (stale ? ' stale' : '');
+      asOf.textContent = (s.batteryStale ? 'last reading ' : 'updated ') + t;
+      asOf.className = 'section-meta' + (s.batteryStale ? ' stale' : '');
     }
   }
 
@@ -1659,16 +1644,12 @@ function renderBattery() {
   } else {
     const p = fmtPower(s.batteryKw);
     flowV.innerHTML = p.value + '<span class="unit"> ' + p.unit + '</span>';
-    if (s.batteryKw < -0.05) {
+    const SRC = { solar: 'storing solar', 'solar+grid': 'from solar + grid', grid: 'from grid' };
+    if (s.batteryState === 'charging') {
       flowL.textContent = '↓ Charging';
-      // Solar left over after the house's own use is what can reach the
-      // battery; the rest of the charge comes from the grid.
-      const surplus = Math.max(0, (s.prodKw || 0) - (s.consKw || 0));
-      const charge = -s.batteryKw;
-      flowS.textContent = surplus >= charge * 0.9 ? 'storing solar'
-        : surplus > 0.05 ? 'from solar + grid' : 'from grid';
+      flowS.textContent = SRC[s.chargeSource] || ' ';
       flowV.style.color = 'var(--green)';
-    } else if (s.batteryKw > 0.05) {
+    } else if (s.batteryState === 'discharging') {
       flowL.textContent = '↑ Discharging';
       flowS.textContent = 'powering home';
       flowV.style.color = 'var(--accent)';
@@ -1684,21 +1665,17 @@ function renderBattery() {
   const b = fmtBackup(s.backupMin);
   backupV.innerHTML = b.value + '<span class="unit"> ' + b.unit + '</span>';
 
-  // House sides card. The meter gives grid power per leg; solar and battery
-  // are 240 V, split evenly, so each side's home load = its grid leg + half
-  // of each. PCS caps discharge at about 2x the lighter side, less 100 W.
+  // House sides card (home load per 120 V leg, from /api/v1/now).
   const legsV = document.getElementById('bat_legs');
   const legsS = document.getElementById('bat_legsSub');
-  if (s.gridL1 == null || s.gridL2 == null || !isFinite(s.gridL1) || !isFinite(s.gridL2)) {
+  const hs = s.sides;
+  if (!hs) {
     legsV.innerHTML = '—';
     legsS.textContent = ' ';
   } else {
-    const shared = ((s.prodKw || 0) + (s.batteryKw || 0)) / 2;
-    const h1 = Math.max(0, s.gridL1 + shared), h2 = Math.max(0, s.gridL2 + shared);
-    legsV.innerHTML = h1.toFixed(1) + ' · ' + h2.toFixed(1) + '<span class="unit"> kW</span>';
-    const gap = Math.abs(h1 - h2);
-    legsS.textContent = gap < 0.2 ? 'balanced'
-      : `uneven by ${gap.toFixed(1)} kW · battery can cover ~${Math.max(0, 2 * Math.min(h1, h2) - 0.1).toFixed(1)} kW`;
+    legsV.innerHTML = hs.l1_kw.toFixed(1) + ' · ' + hs.l2_kw.toFixed(1) + '<span class="unit"> kW</span>';
+    legsS.textContent = hs.balanced ? 'balanced'
+      : `uneven by ${hs.gap_kw.toFixed(1)} kW · battery can cover ~${hs.battery_cover_kw.toFixed(1)} kW`;
   }
 
   // Per-unit detail intentionally hidden — the SunPower app shows
@@ -1729,21 +1706,19 @@ let batModeBusy = false;
 function renderBatteryMode() {
   if (batModeBusy) return;
   const mode = lastSunvault ? lastSunvault.battery_mode : null;
-  document.querySelectorAll('#batModes .chart-mode').forEach(b => {
+  document.querySelectorAll('#batModes .chart-mode, #setBatModes .chart-mode').forEach(b => {
     b.classList.toggle('active', b.dataset.mode === mode);
   });
 }
-document.getElementById('batModes').addEventListener('click', async (e) => {
-  const btn = e.target.closest('.chart-mode');
+async function changeBatteryMode(btn, msg) {
   if (!btn || batModeBusy || btn.classList.contains('active')) return;
-  const msg = document.getElementById('batModeMsg');
-  const btns = document.querySelectorAll('#batModes .chart-mode');
+  const btns = document.querySelectorAll('#batModes .chart-mode, #setBatModes .chart-mode');
   batModeBusy = true;
   btns.forEach(b => b.disabled = true);
-  msg.className = 'sub';
+  msg.className = msg.className.replace(/\s*err\b/, '');
   msg.textContent = 'Switching to ' + btn.textContent + '…';
   try {
-    const r = await fetch('/battery/mode', {
+    const r = await fetch('/api/v1/battery/mode', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode: btn.dataset.mode }),
     });
@@ -1752,14 +1727,123 @@ document.getElementById('batModes').addEventListener('click', async (e) => {
     if (lastSunvault) lastSunvault.battery_mode = j.battery_mode;
     msg.textContent = 'Set to ' + btn.textContent;
   } catch (err) {
-    msg.className = 'sub err';
+    msg.className += ' err';
     msg.textContent = 'Not changed: ' + err.message;
   } finally {
     batModeBusy = false;
     btns.forEach(b => b.disabled = false);
     renderBatteryMode();
   }
-});
+}
+document.getElementById('batModes').addEventListener('click', (e) =>
+  changeBatteryMode(e.target.closest('.chart-mode'), document.getElementById('batModeMsg')));
+
+// ── Views (sidebar / tab bar) ──────────────────────────────────────────
+const VIEWS = ['now', 'money', 'outages', 'panels', 'system', 'settings'];
+function showView(v) {
+  if (!VIEWS.includes(v)) v = 'now';
+  document.querySelectorAll('.view').forEach(el => { el.hidden = el.dataset.view !== v; });
+  document.querySelectorAll('#appNav a').forEach(a => {
+    if (a.dataset.view === v) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  if (v === 'settings') fetchSettings();
+}
+window.addEventListener('hashchange', () => { showView(location.hash.slice(1)); window.scrollTo(0, 0); });
+showView(location.hash.slice(1));
+
+// ── Settings (from /api/v1/settings) ───────────────────────────────────
+let settingsData = null;
+async function fetchSettings() {
+  try {
+    const r = await fetch('/api/v1/settings');
+    if (r.ok) { settingsData = await r.json(); renderSettings(); }
+  } catch (e) { /* keep what's shown */ }
+}
+function settingInput(x) {
+  const id = 'set_' + x.key;
+  const reset = x.overridden ? `<button class="reset" data-reset="${x.key}">reset</button>` : '';
+  if (x.type === 'json') {
+    const v = x.value ? JSON.stringify(JSON.parse(x.value), null, 2) : '';
+    return `<div class="set-row json"><label for="${id}">${esc(x.label)} ${reset}
+        <span class="hint">Blank uses the flat rate.</span></label>
+      <textarea id="${id}" data-key="${x.key}" spellcheck="false">${esc(v)}</textarea></div>`;
+  }
+  const attrs = x.type === 'text' ? 'type="text"'
+    : `type="number" step="${x.type === 'int' ? 1 : 'any'}" min="${x.min}" max="${x.max}"`;
+  const hint = x.overridden ? `<span class="hint">Default ${esc(x.default === '' ? 'blank' : x.default)}</span>` : '';
+  return `<div class="set-row"><label for="${id}">${esc(x.label)}${hint}</label>
+    <span class="ctl"><input id="${id}" data-key="${x.key}" ${attrs} value="${esc(x.value)}">
+    <span class="unit">${esc(x.unit || '')}</span>${reset}</span></div>`;
+}
+function renderSettings() {
+  const d = settingsData;
+  if (!d) return;
+  const bm = d.battery_mode;
+  document.getElementById('setBattery').innerHTML = `<h3>Battery mode</h3>
+    <div class="battery-mode" style="margin-top:0"><div class="chart-modes" id="setBatModes">` +
+    bm.options.map(o =>
+      `<button class="pill-btn chart-mode${o.value === bm.value ? ' active' : ''}" data-mode="${o.value}">${esc(o.label)}</button>`).join('') +
+    `</div><span class="sub" id="setBatMsg"></span></div>`;
+  document.getElementById('setBatModes').addEventListener('click', (e) =>
+    changeBatteryMode(e.target.closest('.chart-mode'), document.getElementById('setBatMsg')));
+
+  const groups = [];
+  for (const x of d.settings) {
+    let g = groups.find(g => g.name === x.group);
+    if (!g) groups.push(g = { name: x.group, items: [] });
+    g.items.push(x);
+  }
+  document.getElementById('setGroups').innerHTML = groups.map(g =>
+    `<div class="set-group"><h3>${esc(g.name)}</h3>${g.items.map(settingInput).join('')}</div>`).join('') +
+    `<div class="set-actions"><button class="pill-btn chart-mode active" id="setSave">Save</button>
+      <span class="msg" id="setMsg"></span></div>`;
+  document.getElementById('setSave').addEventListener('click', saveSettings);
+  document.querySelectorAll('#setGroups [data-reset]').forEach(b =>
+    b.addEventListener('click', () => saveSettings({ [b.dataset.reset]: null })));
+
+  const st = d.status;
+  const yes = (v) => v ? '<b>on</b>' : 'off';
+  document.getElementById('setStatus').innerHTML = [
+    `PVS connection: ${st.mock ? '<b>mock data</b>' : yes(st.pvs_configured)}`,
+    `Alerts (ntfy): ${yes(st.alerts)}${st.alerts_fallback ? ' + fallback' : ''}`,
+    `Grid outage tracking (UPS): ${yes(st.ups_tracking)}`,
+    `Utility bill sync: ${yes(st.utility_api)}`,
+    `PVS refresh: <b>every ${Math.round(st.refresh_secs / 60)} min</b>`,
+  ].map(t => `<div>${t}</div>`).join('');
+  document.getElementById('setMeta').textContent = 'Passwords and tokens stay in .env';
+}
+async function saveSettings(body) {
+  const msg = document.getElementById('setMsg');
+  if (!body || body instanceof Event) {
+    body = {};
+    for (const x of settingsData.settings) {
+      const el = document.querySelector(`[data-key="${x.key}"]`);
+      if (!el) continue;
+      let v = el.value.trim();
+      if (x.type === 'int' || x.type === 'number') v = v === '' ? null : Number(v);
+      if (x.type === 'json' && v) {
+        try { v = JSON.stringify(JSON.parse(v)); } catch (e) { msg.className = 'msg err'; msg.textContent = 'Rate plan isn’t valid JSON'; return; }
+      }
+      const cur = x.type === 'json' && x.value ? JSON.stringify(JSON.parse(x.value)) : x.value;
+      if (v !== cur) body[x.key] = v;
+    }
+    if (!Object.keys(body).length) { msg.className = 'msg'; msg.textContent = 'Nothing changed'; return; }
+  }
+  msg.className = 'msg'; msg.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/v1/settings', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    settingsData = j;
+    renderSettings();
+    const m = document.getElementById('setMsg');
+    m.className = 'msg'; m.textContent = 'Saved';
+  } catch (err) {
+    msg.className = 'msg err'; msg.textContent = 'Not saved: ' + err.message;
+  }
+}
 function renderGridStatus() {
   const el = document.getElementById('gridStatus');
   if (!el) return;
@@ -1850,16 +1934,14 @@ function renderFlow() {
   const prodKw = Math.max(0, s.prodKw || 0);
   const consKw = Math.max(0, s.consKw || 0);
   const batKw = s.batteryKw || 0;
-  // Grid: prefer authoritative PVS net_p; fall back to derivation.
-  const gridDerived = consKw - prodKw - batKw;
-  const gridKw = (s.gridKw != null) ? s.gridKw : gridDerived;
+  const gridKw = s.gridKw || 0;
   const fmtKw = (kw) => `${Math.abs(kw).toFixed(1)} kW`;
 
   // Update node values
   document.getElementById('node_solar_v').textContent = fmtKw(prodKw);
   document.getElementById('node_home_v').textContent = fmtKw(consKw);
   document.getElementById('node_battery_v').textContent = fmtKw(batKw);
-  document.getElementById('node_grid_v').textContent = (Math.abs(gridKw) < 0.05) ? '0.0 kW' : fmtKw(gridKw);
+  document.getElementById('node_grid_v').textContent = s.gridDirection === 'balanced' ? '0.0 kW' : fmtKw(gridKw);
   if (s.batterySoc != null) {
     document.getElementById('node_battery_soc').textContent = Math.round(s.batterySoc * 100) + '%';
   }
@@ -1868,27 +1950,13 @@ function renderFlow() {
   const setCls = (id, cls) => { const el = document.getElementById(id); if (el) el.setAttribute('class', cls); };
   setCls('node_solar_c',   'node-circle solar' + (prodKw > 0.01 ? ' active' : ''));
   setCls('node_battery_c', 'node-circle battery' + (batKw > 0.01 ? ' discharging' : (batKw < -0.01 ? ' charging' : '')));
-  setCls('node_grid_c',    'node-circle grid' + (gridKw > 0.05 ? ' importing' : (gridKw < -0.05 ? ' exporting' : '')));
+  setCls('node_grid_c',    'node-circle grid' + (s.gridDirection === 'balanced' ? '' : ' ' + s.gridDirection));
 
-  // Active flow attribution — greedy from sources to sinks.
-  const SOLAR_THRESH = 0.02, BAT_THRESH = 0.02, GRID_THRESH = 0.05;
-  let solarRem = prodKw;
-  let homeNeed = consKw;
-  let batCharge = batKw < -BAT_THRESH ? -batKw : 0;
-  let batDischarge = batKw > BAT_THRESH ? batKw : 0;
-  let gridImport = gridKw > GRID_THRESH ? gridKw : 0;
-  let gridExport = gridKw < -GRID_THRESH ? -gridKw : 0;
-
-  // Solar → Home first, then Battery (charging), then Grid (export)
-  const solarToHome = Math.min(solarRem, homeNeed); solarRem -= solarToHome; homeNeed -= solarToHome;
-  const solarToBattery = Math.min(solarRem, batCharge); solarRem -= solarToBattery; batCharge -= solarToBattery;
-  const solarToGrid = Math.min(solarRem, gridExport); solarRem -= solarToGrid; gridExport -= solarToGrid;
-  // Battery (discharging) → Home first, then Grid
-  const batteryToHome = Math.min(batDischarge, homeNeed); batDischarge -= batteryToHome; homeNeed -= batteryToHome;
-  const batteryToGrid = Math.min(batDischarge, gridExport); batDischarge -= batteryToGrid; gridExport -= batteryToGrid;
-  // Grid imports → Home first, then Battery
-  const gridToHome = Math.min(gridImport, homeNeed); gridImport -= gridToHome; homeNeed -= gridToHome;
-  const gridToBattery = Math.min(gridImport, batCharge); gridImport -= gridToBattery; batCharge -= gridToBattery;
+  // Who feeds whom comes from /api/v1/now flow.paths.
+  const fp = (s.flow && s.flow.paths) || {};
+  const solarToHome = fp.solar_home || 0, solarToBattery = fp.solar_battery || 0, solarToGrid = fp.solar_grid || 0;
+  const batteryToHome = fp.battery_home || 0, batteryToGrid = fp.battery_grid || 0;
+  const gridToHome = fp.grid_home || 0, gridToBattery = fp.grid_battery || 0;
 
   // Toggle each path + dot. Speed scales with power: 5 kW → 1.2s, 0.1 kW → 4s.
   const paceFor = (kw) => Math.max(1.0, Math.min(4.0, 4.0 - kw * 0.6)).toFixed(2) + 's';
@@ -1916,16 +1984,7 @@ function renderFlow() {
   setFlow('p_grid_battery',  'dot_grid_battery',  'anim_grid_battery',  gridToBattery);
   setFlow('p_battery_grid',  'dot_battery_grid',  'anim_battery_grid',  batteryToGrid);
 
-  // Natural-language headline
-  const phrases = [];
-  if (solarToHome > 0.05)    phrases.push('Solar is powering your home');
-  if (batteryToHome > 0.05)  phrases.push('Battery is powering your home');
-  if (gridToHome > 0.05)     phrases.push('Grid is supplying your home');
-  if (solarToBattery > 0.05) phrases.push('Solar is charging the battery');
-  if (gridToBattery > 0.05)  phrases.push('Grid is charging the battery');
-  if (solarToGrid > 0.05)    phrases.push('Exporting solar to the grid');
-  if (batteryToGrid > 0.05)  phrases.push('Exporting battery to the grid');
-  document.getElementById('flowHeadline').textContent = phrases.length ? phrases.join(' · ') : 'System idle';
+  document.getElementById('flowHeadline').textContent = (s.flow && s.flow.headline) || 'System idle';
 }
 
 document.getElementById('chartModes').addEventListener('click', (e) => {

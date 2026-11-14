@@ -99,7 +99,9 @@ After dark every SunPower inverter reports `STATE=error, OPERATION=noop`, becaus
     // CO2_LBS_PER_KWH, SOLAR_MONTHLY_COST, SOLAR_COST_START ("YYYY-MM"), UTILITY_API_SYNC_HOURS
   ],
   "battery_mode": { "value": "ENERGY_ARBITRAGE",
-                    "options": { "SELF_CONSUMPTION": "Self-Supply", "ENERGY_ARBITRAGE": "Cost Savings", "BACKUP_ONLY": "Reserve" } },
+                    "options": [ { "value": "SELF_CONSUMPTION", "label": "Self-Supply" },
+                                 { "value": "ENERGY_ARBITRAGE", "label": "Cost Savings" },
+                                 { "value": "BACKUP_ONLY", "label": "Reserve" } ] },
   "status": { "mock": false, "pvs_configured": true, "alerts": true, "alerts_fallback": true,
               "ups_tracking": true, "utility_api": true, "refresh_secs": 300 }
 }
