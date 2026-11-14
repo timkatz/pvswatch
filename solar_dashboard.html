@@ -53,6 +53,17 @@
     .app-nav a[aria-current="page"] { background: var(--accent-glow); color: var(--accent); }
     .app-nav .ic { width: 1.2rem; height: 1.3rem; display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; line-height: 1; }
     .view[hidden] { display: none; }
+    .nav-group {
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text-dim); opacity: 0.7; padding: 0.9rem 0.75rem 0.25rem;
+    }
+    .nav-group:first-child { padding-top: 0; }
+    .tile-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; }
+    .tile-grid .metric { min-height: 104px; }
+    .tile-grid .sub.import { color: var(--red); }
+    .tile-grid .sub.export { color: var(--green); }
+    .flow-card { padding: 0.5rem; margin-top: 0.75rem; }
+    @media (max-width: 640px) { .tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (min-width: 900px) {
       .shell {
         max-width: 1180px;
@@ -80,8 +91,50 @@
         font-size: 0.62rem; min-width: 0; flex: 1; text-align: center;
       }
       .app-nav a[aria-current="page"] { background: none; }
+      .nav-group { display: none; }
     }
 
+    /* ── SunVault view ── */
+    .sv-art { display: flex; align-items: flex-end; justify-content: center; gap: 1.1rem; padding: 1.4rem 1rem 1rem; min-height: 250px; }
+    .sv-hub { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+    .sv-hub .box { width: 70px; height: 110px; border-radius: 8px; background: #1c2633; border: 1.5px solid var(--border);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.45rem; font-size: 0.7rem; color: var(--text-dim); font-weight: 700; }
+    .sv-hub .light { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
+    .sv-hub .light.on_grid { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .sv-hub .light.backup { background: var(--red); box-shadow: 0 0 8px var(--red); }
+    .sv-arrows { font-weight: 800; letter-spacing: 0.1em; color: var(--border); margin-bottom: 4.5rem; }
+    .sv-arrows.charging { color: var(--green); } .sv-arrows.discharging { color: var(--accent); }
+    .sv-cab { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+    .sv-cab .shell { position: relative; width: 84px; height: 190px; border-radius: 14px; border: 2px solid #3a4656;
+      background: rgba(233,236,239,0.06); overflow: hidden; }
+    .sv-cab .fill { position: absolute; left: 10px; right: 10px; bottom: 10px; border-radius: 8px;
+      background: linear-gradient(to top, rgba(34,197,94,0.95), rgba(34,197,94,0.55)); transition: height 0.8s; }
+    .sv-cab .fill.med { background: linear-gradient(to top, rgba(245,158,11,0.95), rgba(245,158,11,0.55)); }
+    .sv-cab .fill.low { background: linear-gradient(to top, rgba(239,68,68,0.95), rgba(239,68,68,0.55)); }
+    .sv-cab .pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1.15rem; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+    .sv-cab .reserve { position: absolute; left: 4px; right: 4px; height: 0; border-top: 1.5px solid var(--accent); }
+    .sv-cab .reserve span { position: absolute; top: -13px; left: 0; right: 0; text-align: center; font-size: 0.55rem; font-weight: 700; color: var(--accent); }
+    .sv-cab .name { font-size: 0.75rem; font-weight: 700; } .sv-cab .meta { font-size: 0.65rem; color: var(--text-dim); }
+    .sv-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; }
+    .sv-mode { text-align: left; font: inherit; color: var(--text); background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.8rem 0.9rem; cursor: pointer; min-height: 92px; }
+    .sv-mode b { display: block; font-size: 0.85rem; margin-bottom: 0.25rem; }
+    .sv-mode span { font-size: 0.72rem; color: var(--text-dim); }
+    .sv-mode.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); cursor: default; }
+    .sv-mode b::before { content: "○ "; color: var(--text-dim); } .sv-mode.active b::before { content: "◉ "; color: var(--accent); }
+    .sv-reserve { padding: 0.9rem 1rem; margin-top: 0.75rem; }
+    .sv-reserve .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+    .sv-reserve-row { display: flex; align-items: baseline; gap: 0.5rem; margin: 0.25rem 0; }
+    .sv-reserve-row .value { font-size: 1.6rem; font-weight: 800; }
+    .sv-reserve .sub, .sv-reserve-row .sub { font-size: 0.72rem; color: var(--text-dim); }
+    .sv-reserve input[type=range] { width: 100%; accent-color: var(--accent); margin: 0.4rem 0; }
+    .sv-units { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+    .sv-unit { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.8rem 1rem; }
+    .sv-unit h3 { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 0.4rem; display: flex; justify-content: space-between; }
+    .sv-unit .row { display: flex; justify-content: space-between; font-size: 0.78rem; padding: 0.18rem 0; }
+    .sv-unit .row span:first-child { color: var(--text-dim); }
+    @media (max-width: 640px) { .sv-modes, .sv-units { grid-template-columns: 1fr; } .sv-cab .shell { width: 66px; height: 160px; } }
     /* ── Settings ── */
     .set-group {
       background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -938,10 +991,15 @@
     </header>
 
     <nav class="app-nav" id="appNav" aria-label="Sections">
+      <span class="nav-group">Live</span>
       <a href="#now" data-view="now"><span class="ic" aria-hidden="true">⚡</span><span>Now</span></a>
+      <a href="#battery" data-view="battery"><span class="ic" aria-hidden="true">🔋</span><span>SunVault</span></a>
+      <a href="#panels" data-view="panels"><span class="ic" aria-hidden="true">▦</span><span>Panels</span></a>
+      <span class="nav-group">Trends</span>
+      <a href="#history" data-view="history"><span class="ic" aria-hidden="true">📈</span><span>History</span></a>
       <a href="#money" data-view="money"><span class="ic" aria-hidden="true">💵</span><span>Money</span></a>
       <a href="#outages" data-view="outages"><span class="ic" aria-hidden="true">🔌</span><span>Outages</span></a>
-      <a href="#panels" data-view="panels"><span class="ic" aria-hidden="true">▦</span><span>Panels</span></a>
+      <span class="nav-group">Setup</span>
       <a href="#system" data-view="system"><span class="ic" aria-hidden="true">ⓘ</span><span>System</span></a>
       <a href="#settings" data-view="settings"><span class="ic" aria-hidden="true">⚙</span><span>Settings</span></a>
     </nav>
@@ -951,12 +1009,6 @@
     <div id="warning"></div>
 
     <section class="view" data-view="now">
-    <div class="independence" id="independenceBadge" style="display:none">
-      <span class="pct" id="indPct">—</span>
-      <span>energy independence</span>
-      <span class="scope" id="indScope">—</span>
-    </div>
-
     <div class="tou-now" id="touNow" hidden></div>
 
     <section class="hero" id="heroMetrics">
@@ -991,34 +1043,8 @@
       </div>
     </section>
 
-    <div class="section-head">
-      <h2>Power History</h2>
-      <div class="chart-controls">
-        <div class="chart-modes" id="chartModes">
-          <button class="pill-btn chart-mode active" data-mode="power">POWER</button>
-          <button class="pill-btn chart-mode" data-mode="energy">ENERGY</button>
-        </div>
-        <div class="chart-tabs" id="chartTabs">
-          <button class="pill-btn chart-tab" data-range="live">LIVE</button>
-          <button class="pill-btn chart-tab" data-range="today">TODAY</button>
-          <button class="pill-btn chart-tab" data-range="yesterday">YESTERDAY</button>
-          <button class="pill-btn chart-tab" data-range="1h">1H</button>
-          <button class="pill-btn chart-tab" data-range="6h">6H</button>
-          <button class="pill-btn chart-tab active" data-range="24h">24H</button>
-          <button class="pill-btn chart-tab" data-range="7d">7D</button>
-          <button class="pill-btn chart-tab" data-range="30d">30D</button>
-          <button class="pill-btn chart-tab" data-range="90d">90D</button>
-          <button class="pill-btn chart-tab" data-range="1y">1Y</button>
-          <button class="pill-btn chart-tab" data-range="all">ALL</button>
-        </div>
-      </div>
-    </div>
-    <div class="chart-wrap">
-      <div class="chart-container">
-        <canvas id="powerChart"></canvas>
-      </div>
-      <div class="chart-empty" id="chartEmpty" style="display:none">Collecting data… chart will appear once enough readings are stored.</div>
-      <div class="flow-wrap" id="powerFlow" style="display:none">
+    <div class="chart-card flow-card">
+      <div class="flow-wrap" id="powerFlow">
         <svg class="flow-diagram" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet" aria-label="Power flow diagram">
           <!-- Connection paths (drawn first so dots and nodes layer on top) -->
           <path id="p_solar_home"    class="flow-line solar"    d="M 348,70  Q 510,70  510,152"/>
@@ -1070,7 +1096,15 @@
       </div>
     </div>
 
-    <div class="section-head"><h2>SunVault Battery</h2><span class="section-meta" id="batteryAsOf"></span></div>
+    <div class="section-head"><h2>Today</h2><span class="section-meta" id="todayMeta"></span></div>
+    <div class="tile-grid" id="todayTiles">
+      <div class="metric"><span class="label"><span>☀️ Solar made</span></span><span class="value" id="td_solar">—</span><span class="sub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🏠 Home used</span></span><span class="value" id="td_home">—</span><span class="sub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🍃 Independence</span></span><span class="value" id="td_ind">—</span><span class="sub">solar made ÷ home used</span></div>
+      <div class="metric"><span class="label"><span>💵 Saved</span></span><span class="value" id="td_saved" style="color:var(--green)">—</span><span class="sub" id="td_grid">&nbsp;</span></div>
+    </div>
+
+    <div class="section-head"><h2>SunVault</h2><span class="section-meta" id="batteryAsOf"></span></div>
     <div class="grid-status" id="gridStatus" role="status"></div>
     <div class="battery-grid" id="batterySection">
       <div class="battery-card">
@@ -1100,7 +1134,69 @@
 
     </section>
 
-    <section class="view" data-view="money">
+    <section class="view" data-view="battery">
+    <div class="chart-card sv-art" id="svArt"></div>
+    <div class="tile-grid" id="svTiles"></div>
+    <div class="section-head"><h2>Battery mode</h2><span class="section-meta" id="svModeMsg"></span></div>
+    <div class="sv-modes" id="svModes"></div>
+    <div class="chart-card sv-reserve">
+      <div class="label">Backup reserve</div>
+      <div class="sv-reserve-row">
+        <span class="value" id="svReserveVal">—</span><span class="sub">kept for outages</span>
+        <button class="pill-btn chart-mode active" id="svReserveSet" hidden>Set</button>
+        <span class="sub" id="svReserveMsg"></span>
+      </div>
+      <input type="range" id="svReserve" min="5" max="100" step="5">
+      <div class="sub">In Self-Supply and Cost Savings the battery stops discharging at this level, so it's there when the grid goes down.</div>
+    </div>
+    <div class="section-head"><h2>Last 24 hours</h2></div>
+    <div class="chart-card"><div style="height:200px;position:relative"><canvas id="svDayChart"></canvas></div></div>
+    <div class="section-head"><h2>Units</h2><span class="section-meta" id="svLifetime"></span></div>
+    <div class="sv-units" id="svUnits"></div>
+    </section>
+
+    <section class="view" data-view="history">
+    <div class="section-head">
+      <h2>Power History</h2>
+      <div class="chart-controls">
+        <div class="chart-modes" id="chartModes">
+          <button class="pill-btn chart-mode active" data-mode="power">POWER</button>
+          <button class="pill-btn chart-mode" data-mode="energy">ENERGY</button>
+        </div>
+        <div class="chart-tabs" id="chartTabs">
+          <button class="pill-btn chart-tab" data-range="today">TODAY</button>
+          <button class="pill-btn chart-tab" data-range="yesterday">YESTERDAY</button>
+          <button class="pill-btn chart-tab" data-range="1h">1H</button>
+          <button class="pill-btn chart-tab" data-range="6h">6H</button>
+          <button class="pill-btn chart-tab active" data-range="24h">24H</button>
+          <button class="pill-btn chart-tab" data-range="7d">7D</button>
+          <button class="pill-btn chart-tab" data-range="30d">30D</button>
+          <button class="pill-btn chart-tab" data-range="90d">90D</button>
+          <button class="pill-btn chart-tab" data-range="1y">1Y</button>
+          <button class="pill-btn chart-tab" data-range="all">ALL</button>
+        </div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-container">
+        <canvas id="powerChart"></canvas>
+      </div>
+      <div class="chart-empty" id="chartEmpty" style="display:none">Collecting data… chart will appear once enough readings are stored.</div>
+    </div>
+
+    <div class="independence" id="independenceBadge" style="display:none">
+      <span class="pct" id="indPct">—</span>
+      <span>energy independence</span>
+      <span class="scope" id="indScope">—</span>
+    </div>
+
+    <div class="tile-grid" id="histTotals">
+      <div class="metric"><span class="label"><span>☀️ Solar</span><span class="scope" id="ht_scope">—</span></span><span class="value" id="ht_solar">—</span><span class="sub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🏠 Home</span></span><span class="value" id="ht_home">—</span><span class="sub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🔋 Battery</span></span><span class="value" id="ht_battery">—</span><span class="sub" id="ht_batterySub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🔌 Grid</span></span><span class="value" id="ht_grid">—</span><span class="sub" id="ht_gridSub">&nbsp;</span></div>
+    </div>
+
     <div class="section-head">
       <h2>Savings</h2>
       <span id="savingsScope" style="font-size:0.75rem;color:var(--text-dim)"></span>
@@ -1133,6 +1229,9 @@
       </div>
     </div>
 
+    </section>
+
+    <section class="view" data-view="money">
     <div class="section-head">
       <h2>Net Cost &amp; Savings</h2>
       <div class="chart-tabs" id="finGroups">
@@ -1397,7 +1496,9 @@ async function fetchData() {
     }
 
     // Hero cards (Solar/Home/Battery/Grid) in live mode; otherwise owned by applyTotals
-    if (currentRange === 'live') { applyLive(); renderFlow(); }
+    applyLive(); renderFlow();
+    maybeFetchToday();
+    if (location.hash === '#battery') fetchBattery();
     renderBattery();
 
     const el = n.electrical;
@@ -1544,28 +1645,48 @@ function applyLive() {
 
 // Render hero cards from /history period_totals (kWh)
 function applyTotals(t) {
+  // Range totals live on the History view; Now's cards are always live.
   if (!t) return;
-  const scope = RANGE_LABEL[currentRange] || currentRange;
-
-  const sk = fmtEnergy(t.solar_kwh);
-  setMetric('v_production', sk.value, sk.unit, scope, '', '');
-
-  const hk = fmtEnergy(t.home_kwh);
-  setMetric('v_consumption', hk.value, hk.unit, scope, '', '');
-
+  const put = (id, kwh) => { const e = fmtEnergy(Math.abs(kwh || 0));
+    document.getElementById(id).innerHTML = e.value + '<span class="unit"> ' + e.unit + '</span>'; };
+  document.getElementById('ht_scope').textContent = RANGE_LABEL[currentRange] || currentRange;
+  put('ht_solar', t.solar_kwh);
+  put('ht_home', t.home_kwh);
   // Battery: positive = net discharge, negative = net charge
   const bnet = t.battery_net_kwh || 0;
-  const bk = fmtEnergy(Math.abs(bnet));
-  const bsub = bnet < -0.01 ? 'charged' : bnet > 0.01 ? 'discharged' : 'idle';
-  const bcls = bnet < -0.01 ? 'charge' : bnet > 0.01 ? 'discharge' : '';
-  setMetric('v_battery', bk.value, bk.unit, scope, bsub, bcls);
-
-  // Grid net (PVS convention, verified): positive = imported, negative = exported
+  put('ht_battery', bnet);
+  document.getElementById('ht_batterySub').textContent = bnet < -0.01 ? 'net charged' : bnet > 0.01 ? 'net discharged' : 'idle';
+  // Grid net (PVS convention): positive = imported, negative = exported
   const gnet = t.grid_net_kwh || 0;
-  const gk = fmtEnergy(Math.abs(gnet));
-  const gsub = gnet > 0.01 ? 'imported' : gnet < -0.01 ? 'exported' : 'balanced';
-  const gcls = gnet > 0.01 ? 'import' : gnet < -0.01 ? 'export' : '';
-  setMetric('v_grid', gk.value, gk.unit, scope, gsub, gcls);
+  put('ht_grid', gnet);
+  const gs = document.getElementById('ht_gridSub');
+  gs.textContent = gnet > 0.01 ? 'imported' : gnet < -0.01 ? 'exported' : 'balanced';
+  gs.className = 'sub ' + (gnet > 0.01 ? 'import' : gnet < -0.01 ? 'export' : '');
+}
+
+// ── Today row (Now view): since local midnight, refreshed every 5 min ──
+let lastTodayFetch = 0;
+function maybeFetchToday() {
+  if (Date.now() - lastTodayFetch < 5 * 60 * 1000) return;
+  lastTodayFetch = Date.now();
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  fetch(`/api/v1/history?start=${Math.floor(start / 1000)}&end=${Math.floor(Date.now() / 1000)}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      const t = d && d.period_totals;
+      if (!t) return;
+      const put = (id, kwh) => { const e = fmtEnergy(kwh || 0);
+        document.getElementById(id).innerHTML = e.value + '<span class="unit"> ' + e.unit + '</span>'; };
+      put('td_solar', t.solar_kwh);
+      put('td_home', t.home_kwh);
+      document.getElementById('td_ind').textContent = t.independence_pct == null ? '—' : Math.round(t.independence_pct) + '%';
+      document.getElementById('td_saved').textContent = '$' + (t.savings_dollars ?? 0).toFixed(2);
+      const g = t.grid_net_kwh || 0;
+      document.getElementById('td_grid').textContent = g >= 0
+        ? fmtEnergy(t.grid_import_kwh || 0).value + ' ' + fmtEnergy(t.grid_import_kwh || 0).unit + ' from the grid'
+        : fmtEnergy(t.grid_export_kwh || 0).value + ' ' + fmtEnergy(t.grid_export_kwh || 0).unit + ' sent to the grid';
+    })
+    .catch(() => { lastTodayFetch = 0; });
 }
 
 function applySavings(t) {
@@ -1738,8 +1859,133 @@ async function changeBatteryMode(btn, msg) {
   }
 }
 
+// ── SunVault view (from /api/v1/battery) ───────────────────────────────
+let svData = null, svChart = null, svReserveDraft = null;
+async function fetchBattery() {
+  try {
+    const r = await fetch('/api/v1/battery');
+    if (r.ok) { svData = await r.json(); renderBatteryView(); }
+  } catch (e) { /* keep what's shown */ }
+}
+function svPct(v) { return v == null ? '—' : Math.round(v * 100) + '%'; }
+function renderBatteryView() {
+  const d = svData; if (!d) return;
+  const b = d.battery || {};
+  const state = b.state || 'idle', kind = d.grid_state.kind;
+  const units = d.units.length ? d.units : [null];
+  const reserve = d.reserve.value;
+  const cab = (u, i) => {
+    const soc = u ? u.soc : b.soc;
+    const cls = soc < 0.2 ? 'low' : soc < 0.5 ? 'med' : '';
+    const meta = u ? `${fmtPower(u.kw).value} ${fmtPower(u.kw).unit}${u.temp_c != null ? ' · ' + Math.round(u.temp_c) + '°C' : ''}` : '';
+    return `<div class="sv-cab"><div class="shell">
+        <div class="fill ${cls}" style="height:calc((100% - 20px) * ${Math.max(0.02, Math.min(1, soc || 0))})"></div>
+        ${reserve ? `<div class="reserve" style="bottom:calc(10px + (100% - 20px) * ${reserve})"><span>reserve ${Math.round(reserve * 100)}%</span></div>` : ''}
+        <div class="pct">${svPct(soc)}</div></div>
+      <div class="name">${units.length > 1 ? 'Unit ' + (i + 1) : 'SunVault'}</div><div class="meta">${meta}</div></div>`;
+  };
+  document.getElementById('svArt').innerHTML =
+    `<div class="sv-hub"><div class="box">Hub+<span class="light ${kind}"></span><span style="font-weight:400">${kind === 'on_grid' ? 'on grid' : kind === 'backup' ? 'backup' : '?'}</span></div>
+      <span class="sub" style="font-size:0.7rem;color:var(--text-dim)">Home ${fmtPower(d.home_kw).value} ${fmtPower(d.home_kw).unit}</span></div>
+     <div class="sv-arrows ${state}">${state === 'charging' ? '›››' : state === 'discharging' ? '‹‹‹' : '···'}</div>` +
+    units.map(cab).join('');
+
+  const src = { solar: 'storing solar', 'solar+grid': 'from solar + grid', grid: 'from grid' };
+  const flowLabel = state === 'charging' ? '↓ Charging' : state === 'discharging' ? '↑ Discharging' : '· Idle';
+  const sides = liveSnapshot && liveSnapshot.sides;
+  const tile = (label, value, sub) => `<div class="metric"><span class="label"><span>${label}</span></span><span class="value">${value}</span><span class="sub">${sub || '&nbsp;'}</span></div>`;
+  const bk = fmtBackup(b.backup_min);
+  document.getElementById('svTiles').innerHTML =
+    tile('Charge', svPct(b.soc), b.fetched_at ? (b.stale ? 'last reading ' : 'updated ') + new Date(b.fetched_at * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '') +
+    tile(flowLabel, b.kw == null ? '—' : fmtPower(b.kw).value + '<span class="unit"> ' + fmtPower(b.kw).unit + '</span>',
+         state === 'charging' ? src[b.charge_source] : state === 'discharging' ? 'powering home' : 'standby') +
+    tile('Backup time', bk.value + '<span class="unit"> ' + bk.unit + '</span>', 'at current load') +
+    (sides ? tile('House sides', sides.l1_kw.toFixed(1) + ' · ' + sides.l2_kw.toFixed(1) + '<span class="unit"> kW</span>',
+                  sides.balanced ? 'balanced' : `uneven by ${sides.gap_kw.toFixed(1)} kW · battery covers ~${sides.battery_cover_kw.toFixed(1)} kW`) : '');
+
+  document.getElementById('svModes').innerHTML = d.mode.options.map(o =>
+    `<button class="sv-mode${o.value === d.mode.value ? ' active' : ''}" data-mode="${o.value}"><b>${esc(o.label)}</b><span>${esc(o.description)}</span></button>`).join('');
+
+  const val = svReserveDraft ?? (reserve == null ? null : Math.round(reserve * 100));
+  const slider = document.getElementById('svReserve');
+  if (val != null && document.activeElement !== slider) slider.value = val;
+  document.getElementById('svReserveVal').textContent = val == null ? '—' : val + '%';
+  document.getElementById('svReserveSet').hidden = svReserveDraft == null || svReserveDraft === Math.round((reserve || 0) * 100);
+  document.getElementById('svReserveSet').textContent = 'Set ' + (svReserveDraft ?? '') + '%';
+
+  const lt = d.lifetime;
+  document.getElementById('svLifetime').textContent = lt.round_trip_pct == null ? '' :
+    `lifetime ${fmtEnergy(lt.charged_kwh).value} ${fmtEnergy(lt.charged_kwh).unit} in · ${fmtEnergy(lt.discharged_kwh).value} ${fmtEnergy(lt.discharged_kwh).unit} out · ${Math.round(lt.round_trip_pct)}% round trip`;
+  const row = (k, v) => `<div class="row"><span>${k}</span><span>${v ?? '—'}</span></div>`;
+  document.getElementById('svUnits').innerHTML = d.units.map((u, i) => `<div class="sv-unit">
+      <h3><span>Unit ${i + 1}</span><span>${esc((u.serial || '').slice(-6))}</span></h3>
+      ${row('Charge', svPct(u.soc))}${row('Power', fmtPower(u.kw).value + ' ' + fmtPower(u.kw).unit)}
+      ${row('Health', u.health == null ? 'not reported' : svPct(u.health))}
+      ${row('Cell / inverter temp', `${u.temp_c == null ? '—' : Math.round(u.temp_c) + '°C'} / ${u.inverter_temp_c == null ? '—' : Math.round(u.inverter_temp_c) + '°C'}`)}
+      ${row('Voltage', u.voltage == null ? null : u.voltage.toFixed(1) + ' V')}
+      ${row('Limits (charge / discharge)', `${u.charge_limit_kw ?? '—'} / ${u.discharge_limit_kw ?? '—'} kW`)}
+      ${row('Lifetime in / out', `${fmtEnergy(u.charged_kwh).value} ${fmtEnergy(u.charged_kwh).unit} / ${fmtEnergy(u.discharged_kwh).value} ${fmtEnergy(u.discharged_kwh).unit}`)}
+    </div>`).join('');
+
+  renderSvDayChart(d);
+}
+function renderSvDayChart(d) {
+  const pts = d.day.filter(p => p.soc != null);
+  const labels = pts.map(p => new Date(p.ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+  const data = {
+    labels,
+    datasets: [
+      { label: 'Charge %', data: pts.map(p => Math.round(p.soc * 100)), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.15)', fill: true, tension: 0.3, pointRadius: 0, yAxisID: 'y' },
+      { label: 'Battery kW (+ charging)', type: 'bar', data: pts.map(p => p.kw == null ? null : +(-p.kw).toFixed(2)),
+        backgroundColor: pts.map(p => (p.kw || 0) < 0 ? 'rgba(34,197,94,0.55)' : 'rgba(245,158,11,0.6)'), yAxisID: 'kw' },
+      ...(d.reserve.value ? [{ label: 'Reserve', data: pts.map(() => Math.round(d.reserve.value * 100)), borderColor: '#f59e0b', borderDash: [4, 3], borderWidth: 1, pointRadius: 0, yAxisID: 'y' }] : []),
+    ],
+  };
+  const opts = {
+    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { labels: { color: '#7a8a9e', boxWidth: 10 } } },
+    scales: {
+      x: { ticks: { color: '#7a8a9e', maxTicksLimit: 6 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+      y: { min: 0, max: 100, position: 'right', ticks: { color: '#7a8a9e' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+      kw: { position: 'left', ticks: { color: '#7a8a9e' }, grid: { display: false } },
+    },
+  };
+  if (svChart) { svChart.data = data; svChart.update('none'); }
+  else svChart = new Chart(document.getElementById('svDayChart'), { type: 'line', data, options: opts });
+}
+document.getElementById('svModes').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.sv-mode');
+  if (!btn || btn.classList.contains('active') || batModeBusy) return;
+  const msg = document.getElementById('svModeMsg');
+  const label = btn.querySelector('b').textContent;
+  batModeBusy = true; msg.textContent = 'Switching to ' + label + '…';
+  try {
+    const r = await fetch('/api/v1/battery/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: btn.dataset.mode }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    msg.textContent = 'Set to ' + label;
+    if (lastSunvault) lastSunvault.battery_mode = j.battery_mode;
+  } catch (err) { msg.textContent = 'Not changed: ' + err.message; }
+  finally { batModeBusy = false; renderBatteryMode(); fetchBattery(); }
+});
+document.getElementById('svReserve').addEventListener('input', (e) => { svReserveDraft = +e.target.value; renderBatteryView(); });
+document.getElementById('svReserveSet').addEventListener('click', async () => {
+  const pct = svReserveDraft, msg = document.getElementById('svReserveMsg');
+  msg.textContent = 'Setting reserve to ' + pct + '%…';
+  try {
+    const r = await fetch('/api/v1/battery/reserve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pct }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    msg.textContent = 'Reserve set to ' + pct + '%';
+    svReserveDraft = null;
+  } catch (err) { msg.textContent = 'Not changed: ' + err.message; }
+  fetchBattery();
+});
+
 // ── Views (sidebar / tab bar) ──────────────────────────────────────────
-const VIEWS = ['now', 'money', 'outages', 'panels', 'system', 'settings'];
+const VIEWS = ['now', 'battery', 'panels', 'history', 'money', 'outages', 'system', 'settings'];
 function showView(v) {
   if (!VIEWS.includes(v)) v = 'now';
   document.querySelectorAll('.view').forEach(el => { el.hidden = el.dataset.view !== v; });
@@ -1747,6 +1993,7 @@ function showView(v) {
     if (a.dataset.view === v) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   if (v === 'settings') fetchSettings();
+  if (v === 'battery') fetchBattery();
 }
 window.addEventListener('hashchange', () => { showView(location.hash.slice(1)); window.scrollTo(0, 0); });
 showView(location.hash.slice(1));
@@ -1884,47 +2131,9 @@ document.getElementById('chartTabs').addEventListener('click', (e) => {
   document.querySelectorAll('#chartTabs .chart-tab').forEach(t => t.classList.remove('active'));
   tab.classList.add('active');
   currentRange = tab.dataset.range;
-  applyLiveModeUi(currentRange === 'live');
-  if (currentRange === 'live') {
-    applyLive();   // Hero cards from latest live snapshot
-  } else {
-    fetchHistory();
-  }
+  fetchHistory();
 });
 
-// In LIVE mode, swap the chart for a power-flow visualization and hide
-// period-dependent things (savings, independence) that need a window.
-function applyLiveModeUi(isLive) {
-  const canvas = document.getElementById('powerChart');
-  const emptyEl = document.getElementById('chartEmpty');
-  const flowEl  = document.getElementById('powerFlow');
-  const indBadge = document.getElementById('independenceBadge');
-  const savings = document.getElementById('savingsSection');
-  const savingsScope = document.getElementById('savingsScope');
-  const chartContainer = document.querySelector('.chart-container');
-  const chartModes = document.getElementById('chartModes');
-  if (isLive) {
-    if (powerChart) { powerChart.destroy(); powerChart = null; }
-    canvas.style.display = 'none';
-    emptyEl.style.display = 'none';
-    if (chartContainer) chartContainer.style.display = 'none';
-    if (chartModes) chartModes.style.display = 'none';
-    flowEl.style.display = 'flex';
-    indBadge.style.display = 'none';
-    if (savings) savings.style.opacity = '0.35';
-    if (savingsScope) savingsScope.textContent = '— pick a range to see savings —';
-    ['sv_dollars','sv_co2','sv_trees','sv_miles','sv_gallons'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.textContent = '—';
-    });
-    renderFlow();
-  } else {
-    flowEl.style.display = 'none';
-    if (chartContainer) chartContainer.style.display = '';
-    if (chartModes) chartModes.style.display = '';
-    emptyEl.textContent = 'Collecting data… chart will appear once enough readings are stored.';
-    if (savings) savings.style.opacity = '1';
-  }
-}
 
 // Power-flow visualization (LIVE mode). Shows where energy is currently
 // flowing: solar/battery/grid → home.

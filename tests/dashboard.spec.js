@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   // Wait for the range tabs to be wired up — refreshAvailableRanges()
   // runs after fetch('/health'), so we wait for any tab to be enabled.
-  await page.waitForSelector('#chartTabs .chart-tab:not([disabled])', { timeout: 15000 });
+  await page.waitForSelector('#chartTabs .chart-tab:not([disabled])', { state: 'attached', timeout: 15000 });
 });
 
 test('dashboard loads without console errors', async ({ page }) => {
@@ -24,18 +24,24 @@ test('dashboard loads without console errors', async ({ page }) => {
   await expect(page).toHaveTitle(/solar|pvs/i);
 });
 
-test('LIVE view hides POWER/ENERGY toggle', async ({ page }) => {
-  await page.locator('#chartTabs .chart-tab[data-range="live"]').click();
-  await expect(page.locator('#chartModes')).toBeHidden();
+test('Now is live: power cards, flow diagram and Today row', async ({ page }) => {
   await expect(page.locator('#powerFlow')).toBeVisible();
+  await expect(page.locator('#flowHeadline')).not.toHaveText('—');
+  await expect(page.locator('#scope_production')).toHaveText('live');
+  await expect(page.locator('#td_solar')).not.toHaveText('—');
+  await expect(page.locator('#chartTabs')).toBeHidden();       // the chart lives in History
+  await expect(page.locator('#chartTabs .chart-tab[data-range="live"]')).toHaveCount(0);
 });
 
-test('non-LIVE views show POWER/ENERGY toggle', async ({ page }) => {
-  // Start on LIVE so the toggle is hidden, then flip to 24H.
-  await page.locator('#chartTabs .chart-tab[data-range="live"]').click();
-  await expect(page.locator('#chartModes')).toBeHidden();
-  await page.locator('#chartTabs .chart-tab[data-range="24h"]').click();
+test('History shows range totals and the POWER/ENERGY toggle', async ({ page }) => {
+  await openView(page, 'history');
   await expect(page.locator('#chartModes')).toBeVisible();
+  await expect(page.locator('#ht_scope')).toHaveText(/24/);
+  await expect(page.locator('#ht_solar')).not.toHaveText('—');
+  // Changing the range doesn't touch Now's live cards.
+  await page.locator('#chartTabs .chart-tab[data-range="6h"]').click();
+  await expect(page.locator('#ht_scope')).toHaveText(/6/);
+  await expect(page.locator('#scope_production')).toHaveText('live');
 });
 
 // Mirrors RANGE_SECS + refreshAvailableRanges() in solar_dashboard.html:
@@ -43,6 +49,7 @@ test('non-LIVE views show POWER/ENERGY toggle', async ({ page }) => {
 const RANGE_SECS = { '7d': 7 * 86400, '30d': 30 * 86400, '90d': 90 * 86400, '1y': 365 * 86400 };
 
 test('range gating: tabs enabled iff history covers >=10% of their window', async ({ page, request }) => {
+  await openView(page, 'history');
   const health = await (await request.get('/health')).json();
   expect(health.history_earliest).toBeTruthy();
   const availableSecs = Date.now() / 1000 - new Date(health.history_earliest).getTime() / 1000;
@@ -62,6 +69,7 @@ test('range gating: tabs enabled iff history covers >=10% of their window', asyn
 });
 
 test('clicking 30D fetches history and renders chart', async ({ page }) => {
+  await openView(page, 'history');
   const [resp] = await Promise.all([
     page.waitForResponse((r) => r.url().includes('/history?range=30d') && r.ok()),
     page.locator('#chartTabs .chart-tab[data-range="30d"]').click(),
@@ -87,6 +95,7 @@ test('outages API + card: mock grid outage is listed and summarized', async ({ p
 });
 
 test('chart legend lists outage kinds present in the window', async ({ page }) => {
+  await openView(page, 'history');
   // 24H is the default range; the mock seeds a grid outage 3h ago.
   await page.waitForFunction(() => typeof powerChart !== 'undefined' && powerChart
     && powerChart.data.datasets.some((d) => d._outageKind));
@@ -116,6 +125,7 @@ test('SunVault badge: on-grid chip normally, red on backup or UPS outage', async
 });
 
 test('hovering an outage band shows its window', async ({ page }) => {
+  await openView(page, 'history');
   await page.waitForFunction(() => typeof powerChart !== 'undefined' && powerChart
     && powerChart.data.datasets.some((d) => d._outageKind));
   const pt = await page.evaluate(() => ({ a: powerChart.chartArea, n: powerChart.data.labels.length }));
@@ -134,6 +144,19 @@ test('hovering an outage band shows its window', async ({ page }) => {
   await expect(page.locator('.outage-tip')).toContainText('4m');
   await page.mouse.move(0, 0);
   await expect(page.locator('.outage-tip')).toBeHidden();
+});
+
+test('SunVault view: drawing, modes, reserve and units', async ({ page }) => {
+  await openView(page, 'battery');
+  await expect(page.locator('#svArt .sv-cab')).toHaveCount(2);
+  await expect(page.locator('#svModes .sv-mode')).toHaveCount(3);
+  await expect(page.locator('#svModes .sv-mode.active b')).toHaveText('Self-Supply');
+  await expect(page.locator('#svUnits .sv-unit')).toHaveCount(2);
+  await expect(page.locator('#svReserveVal')).toHaveText('20%');
+  await page.locator('#svReserve').fill('40');
+  await page.locator('#svReserveSet').click();
+  await expect(page.locator('#svReserveMsg')).toHaveText('Reserve set to 40%');
+  await page.request.post('/api/v1/battery/reserve', { data: { pct: 20 } });
 });
 
 test('battery charge source label comes from the API', async ({ page }) => {
