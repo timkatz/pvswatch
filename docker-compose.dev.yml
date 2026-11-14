@@ -28,6 +28,8 @@ services:
     volumes:
       # Mount fixtures live so tests can edit them without a rebuild.
       - ./fixtures:/app/fixtures:ro
+      # Python unit tests, run in the container by `./pvswatch.sh test`.
+      - ./tests:/app/tests:ro
     # Ephemeral SQLite per run — every container start re-seeds the same
     # deterministic 5 days. This is what makes the rig repeatable.
     tmpfs:

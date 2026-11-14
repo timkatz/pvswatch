@@ -252,11 +252,16 @@ run_tests() {
         exit 1
     fi
 
-    echo "🎭 Running Playwright tests..."
+    echo "🐍 Running Python unit tests..."
     set +e
+    $DC $DEV_COMPOSE exec -T monitor python -m unittest discover -s tests -p 'test_*.py'
+    local py_rc=$?
+
+    echo "🎭 Running Playwright tests..."
     ( cd "$SCRIPT_DIR" && npx playwright test "$@" )
     local rc=$?
     set -e
+    (( rc == 0 )) && rc=$py_rc
 
     echo "🧹 Tearing down dev container..."
     $DC $DEV_COMPOSE down >/dev/null 2>&1 || true
