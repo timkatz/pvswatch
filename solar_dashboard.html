@@ -64,7 +64,19 @@
     .delta-up { color: var(--red); } .delta-down { color: var(--green); }
     .tile-grid .sub.import { color: var(--red); }
     .tile-grid .sub.export { color: var(--green); }
-    .flow-card { padding: 0.5rem; margin-top: 0.75rem; }
+    .chart-card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+    }
+    .card-eyebrow {
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text-dim); display: flex; justify-content: space-between; align-items: center;
+    }
+    .flow-card {
+      margin-top: 0.75rem; padding: 1rem 1.1rem 1.1rem;
+      background: radial-gradient(ellipse at 50% 55%, rgba(59,130,246,0.07), transparent 60%), var(--bg-card);
+    }
+    .tile-grid .metric .sub { text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 0.72rem; }
     @media (max-width: 640px) { .tile-grid, .tile-grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (min-width: 900px) {
       .shell {
@@ -126,6 +138,9 @@
     .sv-mode.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); cursor: default; }
     .sv-mode b::before { content: "○ "; color: var(--text-dim); } .sv-mode.active b::before { content: "◉ "; color: var(--accent); }
     .sv-reserve { padding: 0.9rem 1rem; margin-top: 0.75rem; }
+    #svReserveSet[hidden] { display: none !important; }
+    .sv-art { margin-top: 0.75rem; }
+    #svTiles { margin-top: 0.6rem; }
     .sv-reserve .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
     .sv-reserve-row { display: flex; align-items: baseline; gap: 0.5rem; margin: 0.25rem 0; }
     .sv-reserve-row .value { font-size: 1.6rem; font-weight: 800; }
@@ -313,8 +328,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-top: 2rem;
-      margin-bottom: 0.75rem;
+      margin-top: 1.75rem;
+      margin-bottom: 0.7rem;
     }
     .section-head h2 {
       font-size: 0.8rem;
@@ -725,8 +740,8 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 0.5rem;
-      padding: 1rem 0;
+      gap: 0.35rem;
+      padding: 0.25rem 0 0;
     }
     .flow-diagram {
       width: 100%;
@@ -754,11 +769,13 @@
     .node-sub   { font-size: 9px;  fill: var(--text-dim); font-weight: 600; letter-spacing: 0.06em; }
     .node-big   { font-size: 19px; }
     .flow-headline {
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--text);
       text-align: center;
-      letter-spacing: 0.01em;
-      padding: 0.5rem 1rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: 9999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
       min-height: 1.5em;
     }
     .flow-headline .accent { color: var(--accent); font-weight: 700; }
@@ -1030,8 +1047,9 @@
     </section>
 
     <div class="chart-card flow-card">
+      <div class="card-eyebrow"><span>Energy flow</span><span id="flowAsOf"></span></div>
       <div class="flow-wrap" id="powerFlow">
-        <svg class="flow-diagram" id="flowSvg" viewBox="0 -32 600 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Power flow"></svg>
+        <svg class="flow-diagram" id="flowSvg" viewBox="0 -30 600 408" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Power flow"></svg>
         <div class="flow-headline" id="flowHeadline">—</div>
       </div>
     </div>
@@ -1575,10 +1593,9 @@ function applyLive() {
     setMetric('v_battery', '—', '', scope, '', '');
   } else {
     const bp = fmtPower(s.batteryKw);
-    const charging = s.batteryKw < -0.01;
-    const discharging = s.batteryKw > 0.01;
-    const sub = charging ? 'charging' : discharging ? 'discharging' : 'idle';
-    const cls = charging ? 'charge' : discharging ? 'discharge' : '';
+    const st = s.batteryState || 'idle';
+    const sub = st;
+    const cls = st === 'charging' ? 'charge' : st === 'discharging' ? 'discharge' : '';
     setMetric('v_battery', bp.value, bp.unit, scope, sub, cls);
   }
 
@@ -2178,7 +2195,7 @@ function buildFlowSvg() {
   if (!svg || svg.dataset.built) return;
   svg.dataset.built = '1';
   let h = `<defs>
-    <filter id="fdGlow" filterUnits="userSpaceOnUse" x="0" y="-32" width="600" height="440"><feGaussianBlur stdDeviation="2.4" result="b"/>
+    <filter id="fdGlow" filterUnits="userSpaceOnUse" x="0" y="-30" width="600" height="408"><feGaussianBlur stdDeviation="2.4" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
   for (const [k, n] of Object.entries(FD_NODES))
     h += `<radialGradient id="fdHalo_${k}"><stop offset="55%" stop-color="${n.color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${n.color}" stop-opacity="0"/></radialGradient>`;
@@ -2252,7 +2269,7 @@ function renderFlow() {
   }
   const halo = (k, on) => document.getElementById('halo_' + k)?.classList.toggle('on', !!on);
   halo('solar', (s.prodKw || 0) > 0.01);
-  halo('grid', s.gridDirection !== 'balanced');
+  halo('grid', s.gridDirection === 'importing');
   halo('battery', s.batteryState && s.batteryState !== 'idle');
   halo('home', true);
   const paths = (s.flow && s.flow.paths) || {};
@@ -2271,6 +2288,7 @@ function renderFlow() {
     }
   }
   document.getElementById('flowHeadline').textContent = (s.flow && s.flow.headline) || 'System idle';
+  set('flowAsOf', s.ts ? 'live · ' + new Date(s.ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
 }
 
 document.getElementById('chartModes').addEventListener('click', (e) => {
