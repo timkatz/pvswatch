@@ -344,3 +344,19 @@ test('phone width: tab bar at the bottom, no sideways scroll', async ({ page }) 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('API v1 battery: units, modes, reserve', async ({ request }) => {
+  const b = await (await request.get('/api/v1/battery')).json();
+  expect(b.units.length).toBe(2);
+  expect(b.mode.options.map(o => o.label)).toEqual(['Self-Supply', 'Cost Savings', 'Reserve']);
+  expect(b.reserve.value).toBe(0.2);
+  expect(b.lifetime.round_trip_pct).toBeGreaterThan(80);
+  expect(Array.isArray(b.day)).toBeTruthy();
+  let r = await request.post('/api/v1/battery/reserve', { data: { pct: 35 } });
+  expect((await r.json()).reserve).toBe(0.35);
+  expect((await (await request.get('/api/v1/battery')).json()).reserve.value).toBe(0.35);
+  for (const bad of [2, 101, '30', true]) {
+    expect((await request.post('/api/v1/battery/reserve', { data: { pct: bad } })).status()).toBe(400);
+  }
+  await request.post('/api/v1/battery/reserve', { data: { pct: 20 } });
+});

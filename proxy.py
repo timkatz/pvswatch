@@ -1218,23 +1218,34 @@ BATTERY_MODES = {
     "ENERGY_ARBITRAGE": "Cost Savings",
     "BACKUP_ONLY": "Reserve",
 }
-_battery_mode = {"value": None, "checked": None}
+# The backup reserve: the charge the battery keeps for outages (the app's
+# reserve slider). 0–1, same scale as the usable charge the app shows.
+BATTERY_RESERVE_VAR = "/ess/config/dcm/control_param/min_customer_soc"
+BATTERY_RESERVE_RANGE = (5, 100)   # percent
+_battery_mode = {"value": None, "reserve": None, "checked": None}
 
 
 def _read_battery_mode(sess):
-    """Read control_mode into _battery_mode. Returns the value or None."""
-    r = sess.get(f"https://{PVS_IP}/vars?name={BATTERY_MODE_VAR}&fmt=obj",
+    """Read control_mode + the reserve (one varserver call) into
+    _battery_mode. Returns the mode or None."""
+    r = sess.get(f"https://{PVS_IP}/vars?match=/ess/config/dcm/&fmt=obj",
                  verify=False, timeout=30)
     if r.status_code in (401, 403):
         sessions.pop(PVS_IP, None)
         return None
     if r.status_code != 200:
         return None
-    v = r.json().get(BATTERY_MODE_VAR)
+    d = r.json()
+    v = d.get(BATTERY_MODE_VAR)
+    reserve = _fnum(d.get(BATTERY_RESERVE_VAR))
     if v is not None:
         if _battery_mode["value"] not in (None, v):
             logger.info("Battery mode changed %s -> %s", _battery_mode["value"], v)
+        if reserve is not None and _battery_mode["reserve"] not in (None, reserve):
+            logger.info("Battery reserve changed %.2f -> %.2f", _battery_mode["reserve"], reserve)
         _battery_mode.update(value=v, checked=time.time())
+        if reserve is not None:
+            _battery_mode["reserve"] = reserve
     return v
 
 
@@ -1408,6 +1419,16 @@ def _refresh_mock():
                 d["STATEDESCR"] = "Communicating"
 
     _inject_battery(devices_data, livedata)
+    # Two SunVault units splitting the load, like a real 2-unit install.
+    b = devices_data.get("battery") or {}
+    if b:
+        b["units"] = [{
+            "index": i, "model": "SPWR-Equinox-model", "serial": f"MOCK-ESS-{i}",
+            "p_kw": round(b["p_kw"] / 2, 3), "soc": b["soc"], "raw_soc": min(1, b["soc"] + 0.15),
+            "soh": 0.98 - i * 0.01, "op_mode": "ENERGY_ARBITRAGE", "v_batt": 54.4, "temp_c": 28.5 + i,
+            "temp_inv_c": 40.0 + i, "lifetime_charged_kwh": 5100.0 + 400 * i,
+            "lifetime_discharged_kwh": 4700.0 + 380 * i, "chrg_limit_kw": 10.7, "dischrg_limit_kw": 10.1,
+        } for i in (0, 1)]
     cache.set(json.dumps(devices_data))
     cache.set_error(None)
     _record_reading(json.dumps(devices_data), livedata=livedata)
@@ -3306,7 +3327,7 @@ def sunvault_state():
         if v is not None:
             _midstate.update(value=int(float(v)), since=time.time() - 3600, checked=time.time())
     if MOCK_PVS and _battery_mode["value"] is None:
-        _battery_mode.update(value="SELF_CONSUMPTION", checked=time.time())
+        _battery_mode.update(value="SELF_CONSUMPTION", reserve=0.2, checked=time.time())
     try:
         conn = sqlite3.connect(DB_PATH)
         events = [{"ts": t, "value": v, "prev": p, "kind": _midstate_kind(v)} for t, v, p in conn.execute(
@@ -3373,7 +3394,7 @@ API_V1_BATTERY_STALE_S = 600   # keep the last good battery reading this long
 _last_battery = {"block": None, "ts": None}
 
 
-def _num(v, default=None):
+def _fnum(v, default=None):
     try:
         x = float(v)
     except (TypeError, ValueError):
@@ -3433,7 +3454,7 @@ def _panels_view(inverters, solar_kw):
     STATE=error / OPERATION=noop (powerline comms need DC), which is normal."""
     def state(i):
         return (i.get("STATEDESCR") or i.get("STATE") or "").lower()
-    has_power = any(_num(i.get("p_3phsum_kw"), 0) > 0.001 or _num(i.get("vln_3phavg_v"), 0) > 0.1
+    has_power = any(_fnum(i.get("p_3phsum_kw"), 0) > 0.001 or _fnum(i.get("vln_3phavg_v"), 0) > 0.1
                     for i in inverters)
     all_err = bool(inverters) and all(state(i) == "error" for i in inverters)
     all_ok = bool(inverters) and all(state(i) == "working" for i in inverters)
@@ -3447,10 +3468,10 @@ def _panels_view(inverters, solar_kw):
         mode, summary = "idle", f"{len(inverters)} panels idle"
     else:
         mode, summary = "producing", f"{len(inverters)} panels"
-    max_w = max([_num(i.get("p_3phsum_kw"), 0) * 1000 for i in inverters] or [0])
+    max_w = max([_fnum(i.get("p_3phsum_kw"), 0) * 1000 for i in inverters] or [0])
     items = []
     for i in inverters:
-        w = round(_num(i.get("p_3phsum_kw"), 0) * 1000)
+        w = round(_fnum(i.get("p_3phsum_kw"), 0) * 1000)
         ok = state(i) == "working"
         idle_noop = not ok and (i.get("OPERATION") or "").lower() == "noop" and solar_kw < 0.05
         if mode in ("night", "idle") or (mode == "producing" and (idle_noop or (ok and w <= 0))):
@@ -3469,11 +3490,11 @@ def _panels_view(inverters, solar_kw):
             # like big ratios, so only flag a laggard when the best is real.
             "low": status == "ok" and max_w >= 100 and 0 < w < 0.85 * max_w,
             "w": w if status == "ok" else None,
-            "ac_v": _num(i.get("vln_3phavg_v")) or None,
-            "dc_v": _num(i.get("v_mppt1_v")) or None,
-            "dc_a": _num(i.get("i_mppt1_a")) or None,
-            "temp_c": _num(i.get("t_htsnk_degc")) or None,
-            "lifetime_kwh": _num(i.get("ltea_3phsum_kwh")) or None,
+            "ac_v": _fnum(i.get("vln_3phavg_v")) or None,
+            "dc_v": _fnum(i.get("v_mppt1_v")) or None,
+            "dc_a": _fnum(i.get("i_mppt1_a")) or None,
+            "temp_c": _fnum(i.get("t_htsnk_degc")) or None,
+            "lifetime_kwh": _fnum(i.get("ltea_3phsum_kwh")) or None,
         })
     return {"mode": mode, "summary": summary, "count": len(inverters),
             "errors": sum(1 for x in items if x["status"] == "error"), "items": items}
@@ -3488,20 +3509,20 @@ def build_now(data, fetched_at=None):
     gw = next((d for d in devs if d.get("DEVICE_TYPE") == "PVS"), {})
     inverters = [d for d in devs if d.get("TYPE") == "SOLARBRIDGE"]
 
-    solar = _num(mp.get("p_3phsum_kw"), 0)
-    home = _num(mc.get("p_3phsum_kw"), 0)
+    solar = _fnum(mp.get("p_3phsum_kw"), 0)
+    home = _fnum(mc.get("p_3phsum_kw"), 0)
     solar = 0.0 if solar <= 0.005 else solar
     home = 0.0 if home <= 0.005 else home
 
     # Battery: the PVS sometimes drops the block for a refresh or two
     # (re-registering after a LAN blip). Keep the last good one a while.
     bat = data.get("battery") or {}
-    if _num(bat.get("soc")) is not None:
+    if _fnum(bat.get("soc")) is not None:
         _last_battery.update(block=bat, ts=fetched_at or now)
     lb = _last_battery["block"] if (_last_battery["ts"] and now - _last_battery["ts"] <= API_V1_BATTERY_STALE_S) else None
-    bat_kw = _num(lb.get("p_kw")) if lb else None
+    bat_kw = _fnum(lb.get("p_kw")) if lb else None
 
-    grid = _num((data.get("grid") or {}).get("p_kw"))
+    grid = _fnum((data.get("grid") or {}).get("p_kw"))
     grid_source = "meter"
     if grid is None:
         grid, grid_source = home - solar - (bat_kw or 0), "derived"
@@ -3518,7 +3539,7 @@ def build_now(data, fetched_at=None):
             surplus = max(0.0, solar - home)
             source = "solar" if surplus >= -bat_kw * 0.9 else "solar+grid" if surplus > 0.05 else "grid"
         battery = {
-            "kw": bat_kw, "soc": _num(lb.get("soc")), "backup_min": _num(lb.get("backup_min")),
+            "kw": bat_kw, "soc": _fnum(lb.get("soc")), "backup_min": _fnum(lb.get("backup_min")),
             "state": state, "charge_source": source,
             "fetched_at": _last_battery["ts"], "stale": _last_battery["block"] is not bat,
             "mode": _battery_mode["value"], "mode_label": BATTERY_MODES.get(_battery_mode["value"]),
@@ -3527,7 +3548,7 @@ def build_now(data, fetched_at=None):
     # House sides: the meter gives grid power per leg; solar and battery are
     # 240 V and split evenly. PCS caps discharge at ~2x the lighter side.
     sides = None
-    l1, l2 = _num(mc.get("p1_kw")), _num(mc.get("p2_kw"))
+    l1, l2 = _fnum(mc.get("p1_kw")), _fnum(mc.get("p2_kw"))
     if l1 is not None and l2 is not None:
         shared = (solar + (bat_kw or 0)) / 2
         h1, h2 = max(0.0, l1 + shared), max(0.0, l2 + shared)
@@ -3536,7 +3557,7 @@ def build_now(data, fetched_at=None):
                  "balanced": gap < 0.2, "battery_cover_kw": round(max(0.0, 2 * min(h1, h2) - 0.1), 3)}
 
     flow, headline = _flow_split(solar, home, bat_kw or 0, grid)
-    pf_p, pf_c = _num(mp.get("tot_pf_rto")), _num(mc.get("tot_pf_rto"))
+    pf_p, pf_c = _fnum(mp.get("tot_pf_rto")), _fnum(mc.get("tot_pf_rto"))
     return {
         "ts": now,
         "fetched_at": fetched_at,
@@ -3547,10 +3568,10 @@ def build_now(data, fetched_at=None):
         "battery": battery,
         "house_sides": sides,
         "flow": {"paths": flow, "headline": headline},
-        "lifetime_kwh": _num(mp.get("net_ltea_3phsum_kwh")),
+        "lifetime_kwh": _fnum(mp.get("net_ltea_3phsum_kwh")),
         "electrical": {
-            "system_v": _num(mc.get("v12_v")), "l1_v": _num(mc.get("v1n_v")), "l2_v": _num(mc.get("v2n_v")),
-            "freq_hz": _num(mc.get("freq_hz")),
+            "system_v": _fnum(mc.get("v12_v")), "l1_v": _fnum(mc.get("v1n_v")), "l2_v": _fnum(mc.get("v2n_v")),
+            "freq_hz": _fnum(mc.get("freq_hz")),
             "pf_solar": pf_p if pf_p is not None and abs(pf_p) >= 0.001 else None,
             "pf_home": pf_c,
         },
@@ -3559,7 +3580,7 @@ def build_now(data, fetched_at=None):
         "system": {
             "model": gw.get("MODEL"), "serial": gw.get("SERIAL"), "hw": gw.get("HWVER"),
             "firmware": gw.get("SWVER"), "state": gw.get("STATE"),
-            "mem_kib": _num(gw.get("dl_mem_used")), "panel_id": gw.get("panid"),
+            "mem_kib": _fnum(gw.get("dl_mem_used")), "panel_id": gw.get("panid"),
             "ct_type": mc.get("subtype"),
         },
     }
@@ -3572,6 +3593,110 @@ def api_now():
         msg = cache.last_error or "no PVS data yet"
         return jsonify({"error": msg}), 503
     return jsonify(build_now(json.loads(raw), cache.last_fetch))
+
+
+# ── SunVault screen ───────────────────────────────────────────────────
+BATTERY_MODE_INFO = {
+    "SELF_CONSUMPTION": "Powers your home from solar and the battery first; the grid fills in.",
+    "ENERGY_ARBITRAGE": "Saves the battery for the 4–9 PM peak, when power costs the most, to lower your bill.",
+    "BACKUP_ONLY": "Keeps the battery full for outages. It only discharges when the grid goes down.",
+}
+
+
+def build_battery(data, fetched_at=None, day=()):
+    """Everything the SunVault screen shows. day = [(ts, kw, soc)] rows."""
+    n = build_now(data, fetched_at)
+    units_raw = ((data.get("battery") or {}).get("units")) or []
+    units = []
+    for u in units_raw:
+        soh = _fnum(u.get("soh"))
+        units.append({
+            "index": u.get("index"), "model": u.get("model"), "serial": u.get("serial"),
+            "kw": _fnum(u.get("p_kw")), "soc": _fnum(u.get("soc")),
+            # A unit sometimes reports health 0 while healthy; show it as unknown.
+            "health": soh if soh else None,
+            "temp_c": _fnum(u.get("temp_c")), "inverter_temp_c": _fnum(u.get("temp_inv_c")),
+            "voltage": _fnum(u.get("v_batt")),
+            "charged_kwh": _fnum(u.get("lifetime_charged_kwh")),
+            "discharged_kwh": _fnum(u.get("lifetime_discharged_kwh")),
+            "charge_limit_kw": _fnum(u.get("chrg_limit_kw")),
+            "discharge_limit_kw": _fnum(u.get("dischrg_limit_kw")),
+        })
+    charged = sum(u["charged_kwh"] or 0 for u in units)
+    discharged = sum(u["discharged_kwh"] or 0 for u in units)
+    lo, hi = BATTERY_RESERVE_RANGE
+    return {
+        "ts": n["ts"],
+        "battery": n["battery"],
+        "grid_state": n["grid_state"],
+        "home_kw": n["home_kw"], "solar_kw": n["solar_kw"], "grid": n["grid"],
+        "mode": {
+            "value": _battery_mode["value"], "label": BATTERY_MODES.get(_battery_mode["value"]),
+            "options": [{"value": k, "label": v, "description": BATTERY_MODE_INFO[k]}
+                        for k, v in BATTERY_MODES.items()],
+        },
+        "reserve": {"value": _battery_mode["reserve"], "min": lo / 100, "max": hi / 100},
+        "units": units,
+        "lifetime": {
+            "charged_kwh": round(charged, 1) if units else None,
+            "discharged_kwh": round(discharged, 1) if units else None,
+            # Round trip over the battery's life: what came out / what went in.
+            "round_trip_pct": round(discharged / charged * 100, 1) if charged > 0 else None,
+        },
+        "day": [{"ts": t, "kw": k, "soc": s} for t, k, s in day],
+    }
+
+
+def _battery_day():
+    """Last 24 h of battery readings, averaged into 15-minute buckets."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT CAST(ts / 900 AS INTEGER) * 900 AS b, AVG(battery_kw), AVG(battery_soc) "
+            "FROM readings WHERE ts > ? AND battery_soc IS NOT NULL GROUP BY b ORDER BY b",
+            (time.time() - 86400,)).fetchall()
+        conn.close()
+    except sqlite3.Error:
+        return []
+    return [(t, round(k, 3) if k is not None else None, round(s, 3) if s is not None else None)
+            for t, k, s in rows]
+
+
+@app.route("/api/v1/battery", methods=["GET"])
+def api_battery():
+    raw = cache.get()
+    if not raw:
+        return jsonify({"error": cache.last_error or "no PVS data yet"}), 503
+    return jsonify(build_battery(json.loads(raw), cache.last_fetch, _battery_day()))
+
+
+@app.route("/api/v1/battery/reserve", methods=["POST"])
+def set_battery_reserve():
+    """Set the backup reserve: {"pct": 20}. Written to the PVS, then read back."""
+    pct = (request.get_json(silent=True) or {}).get("pct")
+    lo, hi = BATTERY_RESERVE_RANGE
+    if not isinstance(pct, (int, float)) or isinstance(pct, bool) or not lo <= pct <= hi:
+        return jsonify({"error": f"pct must be a number from {lo} to {hi}"}), 400
+    value = round(pct / 100, 2)
+    if MOCK_PVS:
+        _battery_mode.update(reserve=value, checked=time.time())
+        return jsonify({"reserve": value})
+    sess, err = _get_session(PVS_IP, PVS_USER, PVS_PASS)
+    if not sess:
+        return jsonify({"error": err}), 502
+    try:
+        r = sess.get(f"https://{PVS_IP}/vars?set={BATTERY_RESERVE_VAR}={value:.2f}",
+                     verify=False, timeout=30)
+        if r.status_code != 200:
+            return jsonify({"error": f"PVS refused the change (HTTP {r.status_code})"}), 502
+        _read_battery_mode(sess)
+    except Exception as e:
+        return jsonify({"error": f"PVS error: {e}"}), 502
+    now = _battery_mode["reserve"]
+    if now is None or abs(now - value) > 0.005:
+        return jsonify({"error": f"PVS reports {now} after the change", "reserve": now}), 502
+    logger.info("Battery reserve set to %.0f%% from the dashboard", value * 100)
+    return jsonify({"reserve": now})
 
 
 # ── Settings ──────────────────────────────────────────────────────────

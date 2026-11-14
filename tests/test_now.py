@@ -104,5 +104,40 @@ class NowTest(unittest.TestCase):
         self.assertIsNone(proxy._curtime_epoch(""))
 
 
+
+class BillParserHelperTest(unittest.TestCase):
+    def test_bill_number_helper_not_shadowed(self):
+        # The bill parser's _num strips $ and commas; an API helper once
+        # reused the name and silently broke PDF amounts.
+        self.assertEqual(proxy._num("$1,234.56"), 1234.56)
+
+
+
+class BatteryTest(unittest.TestCase):
+    def setUp(self):
+        proxy._last_battery.update(block=None, ts=None)
+        proxy._battery_mode.update(value="ENERGY_ARBITRAGE", reserve=0.2)
+
+    def test_units_lifetime_and_mode(self):
+        data = snapshot(1, 1, 0, -1, soc=0.6)
+        data["battery"]["units"] = [
+            {"index": 0, "p_kw": -0.5, "soc": 0.6, "soh": 0.0, "lifetime_charged_kwh": 100, "lifetime_discharged_kwh": 90},
+            {"index": 1, "p_kw": -0.5, "soc": 0.6, "soh": 0.97, "lifetime_charged_kwh": 100, "lifetime_discharged_kwh": 80},
+        ]
+        b = proxy.build_battery(data, day=[(1.0, -1.0, 0.5)])
+        self.assertEqual([u["health"] for u in b["units"]], [None, 0.97])  # 0 = unknown, not dead
+        self.assertEqual(b["lifetime"], {"charged_kwh": 200, "discharged_kwh": 170, "round_trip_pct": 85.0})
+        self.assertEqual(b["mode"]["label"], "Cost Savings")
+        self.assertEqual([o["label"] for o in b["mode"]["options"]], ["Self-Supply", "Cost Savings", "Reserve"])
+        self.assertTrue(all(o["description"] for o in b["mode"]["options"]))
+        self.assertEqual(b["reserve"], {"value": 0.2, "min": 0.05, "max": 1.0})
+        self.assertEqual(b["day"], [{"ts": 1.0, "kw": -1.0, "soc": 0.5}])
+
+    def test_no_units(self):
+        b = proxy.build_battery(snapshot(1, 1, 0, -1))
+        self.assertEqual(b["units"], [])
+        self.assertIsNone(b["lifetime"]["round_trip_pct"])
+
+
 if __name__ == "__main__":
     unittest.main()

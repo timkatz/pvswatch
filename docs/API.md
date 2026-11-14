@@ -23,6 +23,8 @@ Writes (`POST`/`DELETE`) are refused when a browser marks them cross-site (`Sec-
 | GET | `/api/v1/outages?range=24h` | PVS-offline and grid outages, newest first, with a summary |
 | GET | `/api/v1/sunvault` | Grid/backup state (`kind`: `on_grid` / `backup` / `unknown`), recent changes, `battery_mode` |
 | POST | `/api/v1/battery/mode` | `{"mode": "SELF_CONSUMPTION" \| "ENERGY_ARBITRAGE" \| "BACKUP_ONLY"}`. Writes it to the PVS and reads it back. 400 on an unknown mode, 502 if the PVS refuses or the value doesn't stick |
+| GET | `/api/v1/battery` | The SunVault screen: live battery, mode (with descriptions), backup reserve, per-unit detail, lifetime charged/discharged and round trip, last 24 h in 15-min buckets (`day`) |
+| POST | `/api/v1/battery/reserve` | `{"pct": 20}` (5–100). Sets the backup reserve on the PVS and reads it back; 400/502 like `battery/mode` |
 | GET | `/api/v1/finance?group=month&spread=1` | Bills, no-solar estimates, net cost and savings |
 | GET | `/api/v1/tou` | Rate plan, today's time-of-use segments, current period |
 | GET | `/api/v1/health` | Cache status, history count, `history_earliest` |
