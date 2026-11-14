@@ -269,6 +269,7 @@ struct OutagesView: View {
 // ── Panels ───────────────────────────────────────────────────────────
 struct PanelsView: View {
     @Environment(Store.self) private var store
+    @State private var selected: Now.Panel?
 
     var body: some View {
         Page {
@@ -282,11 +283,19 @@ struct PanelsView: View {
                         .font(.footnote).foregroundStyle(Theme.red) }
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
-                    ForEach(p.items) { PanelCell(p: $0) }
+                    ForEach(p.items) { item in
+                        Button { selected = item } label: { PanelCell(p: item) }.buttonStyle(.plain)
+                    }
                 }
             } else {
                 EmptyState()
             }
+        }
+        .sheet(item: $selected) { PanelDetail(panel: $0) }
+        // `-panel <serial>` launch argument (development) opens one panel.
+        .onChange(of: store.now?.panels.count, initial: true) { _, _ in
+            if selected == nil, let s = UserDefaults.standard.string(forKey: "panel"),
+               let item = store.now?.panels.items.first(where: { $0.serial == s }) { selected = item }
         }
     }
 }

@@ -360,3 +360,14 @@ test('API v1 battery: units, modes, reserve', async ({ request }) => {
   }
   await request.post('/api/v1/battery/reserve', { data: { pct: 20 } });
 });
+
+test('clicking a panel opens its detail with history', async ({ page }) => {
+  await page.locator('#appNav a[data-view="panels"]').click();
+  const card = page.locator('#panels .panel.clickable').first();
+  const serial = await card.getAttribute('data-serial');
+  await card.click();
+  await expect(page.locator('#panelModal')).toHaveClass(/open/);
+  await expect(page.locator('#pm_title')).toHaveText('Panel ' + serial.slice(-6));
+  await expect(page.locator('#pm_meta')).not.toHaveText('Loading…');
+  await expect(page.locator('#pm_lifetime')).not.toHaveText('—');
+});

@@ -21,6 +21,7 @@ settings:
     INFOPLIST_KEY_CFBundleDisplayName: PVS Watch
     INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO # HTTPS only
     PRODUCT_BUNDLE_IDENTIFIER: $(PVSWATCH_BUNDLE_PREFIX).pvswatch
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 targets:
   PvsWatch:
     type: application

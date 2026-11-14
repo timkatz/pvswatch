@@ -15,22 +15,29 @@
 		4B5AEAC55810C825EA2FE5CF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A9536CA84492AFE59F3D935 /* SettingsView.swift */; };
 		50E60F47D273BA51C6B27918 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423BE8006D9D07F2C8A07F83 /* Theme.swift */; };
 		591D576CF5BE4FF7EEA9B306 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1717875438644BE8D65D24 /* Store.swift */; };
+		59D4098A0D954E4A64FECAE0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 206192845CF2F14947336858 /* Assets.xcassets */; };
 		7B19D7DD22B097CACC15157C /* NowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EE327F3833E6ABABECA3242 /* NowView.swift */; };
 		7B88957AF82789303B09AB0B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A9536CA84492AFE59F3D935 /* SettingsView.swift */; };
+		A6218D5BC736F79D08A434FD /* PanelDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3011333583186F1DFE575E /* PanelDetail.swift */; };
 		B1402B4693F030F686E5076B /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5AC846AE1BC990B1C4314 /* API.swift */; };
 		BA11EDE615250AD5FAD7CF2E /* Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */; };
+		BE8CFA09A96F0A9512C4BC06 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 393825F94120C0891C826596 /* Assets.xcassets */; };
 		CD8CD88AB9AF48FF5D160DEE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5AC846AE1BC990B1C4314 /* API.swift */; };
 		D056E0CF02CA7529B922C04E /* PvsWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A2B82F3A9690BB0748E747 /* PvsWatchApp.swift */; };
 		E6BDC41C2519B62DEE29420D /* BatteryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0BD58D41DAE33526B8D03B /* BatteryView.swift */; };
 		F9D10FE47597B4A40E55349A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423BE8006D9D07F2C8A07F83 /* Theme.swift */; };
+		FF6ABD963A255E2F1D25BA33 /* PanelDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C3011333583186F1DFE575E /* PanelDetail.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		01D5A46EA8F5AF57D13D7AF0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		1C3011333583186F1DFE575E /* PanelDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelDetail.swift; sourceTree = "<group>"; };
+		206192845CF2F14947336858 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		21F528B8CDFB1735D7AA06B4 /* PvsWatchMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PvsWatchMac.entitlements; sourceTree = "<group>"; };
 		2A9536CA84492AFE59F3D935 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		2B34C8ED792E4644BB9234A2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2EE327F3833E6ABABECA3242 /* NowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowView.swift; sourceTree = "<group>"; };
+		393825F94120C0891C826596 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		423BE8006D9D07F2C8A07F83 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		45B5AC846AE1BC990B1C4314 /* API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = API.swift; sourceTree = "<group>"; };
 		4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screens.swift; sourceTree = "<group>"; };
@@ -40,7 +47,7 @@
 		D8A4FC58C2E483E430DC7DEA /* PvsWatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PvsWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE1717875438644BE8D65D24 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		EF4C35E21819CAE7E9F3CB8D /* PvsWatchMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PvsWatchMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		"TEMP_0A3B7909-935D-4497-9BF3-81DC90FF68EB" /* PvsWatch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PvsWatch.xcconfig; sourceTree = "<group>"; };
+		"TEMP_B96A9C05-E918-41EE-A5E4-2E1005911735" /* PvsWatch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PvsWatch.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -59,6 +66,7 @@
 				45B5AC846AE1BC990B1C4314 /* API.swift */,
 				BE0BD58D41DAE33526B8D03B /* BatteryView.swift */,
 				2EE327F3833E6ABABECA3242 /* NowView.swift */,
+				1C3011333583186F1DFE575E /* PanelDetail.swift */,
 				4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */,
 				2A9536CA84492AFE59F3D935 /* SettingsView.swift */,
 				EE1717875438644BE8D65D24 /* Store.swift */,
@@ -70,6 +78,7 @@
 		56672D7A99E24C79F8453926 /* Mac */ = {
 			isa = PBXGroup;
 			children = (
+				206192845CF2F14947336858 /* Assets.xcassets */,
 				01D5A46EA8F5AF57D13D7AF0 /* Info.plist */,
 				21F528B8CDFB1735D7AA06B4 /* PvsWatchMac.entitlements */,
 				D756376D1D2118505D42C664 /* PvsWatchMacApp.swift */,
@@ -80,6 +89,7 @@
 		972DE0EF7012D4F165238EBF /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				393825F94120C0891C826596 /* Assets.xcassets */,
 				2B34C8ED792E4644BB9234A2 /* Info.plist */,
 				A0A2B82F3A9690BB0748E747 /* PvsWatchApp.swift */,
 			);
@@ -96,10 +106,10 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_FA6B5EE5-3E5C-4784-93B5-E59165836744" /* apple */ = {
+		"TEMP_56F0F07A-54D0-48B3-9D4D-0AAEFD7EBBDA" /* apple */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_0A3B7909-935D-4497-9BF3-81DC90FF68EB" /* PvsWatch.xcconfig */,
+				"TEMP_B96A9C05-E918-41EE-A5E4-2E1005911735" /* PvsWatch.xcconfig */,
 			);
 			path = apple;
 			sourceTree = "<group>";
@@ -112,6 +122,7 @@
 			buildConfigurationList = D8CD07743837F346F3587295 /* Build configuration list for PBXNativeTarget "PvsWatchMac" */;
 			buildPhases = (
 				FE61A29953DFF9A37135FE09 /* Sources */,
+				56166BD8662C51AA854F5DE4 /* Resources */,
 				B841CA55F4F6C1BDE7C2C26B /* Stamp build info */,
 			);
 			buildRules = (
@@ -130,6 +141,7 @@
 			buildConfigurationList = 0F6291C9C806C3E646F452B8 /* Build configuration list for PBXNativeTarget "PvsWatch" */;
 			buildPhases = (
 				03FCEF807C3CBFDD5B3A579A /* Sources */,
+				8DD7EEA05FFD33712D5C817B /* Resources */,
 				6AFB917FE55412CBF3B0CA58 /* Stamp build info */,
 			);
 			buildRules = (
@@ -182,6 +194,25 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		56166BD8662C51AA854F5DE4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				59D4098A0D954E4A64FECAE0 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8DD7EEA05FFD33712D5C817B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BE8CFA09A96F0A9512C4BC06 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		6AFB917FE55412CBF3B0CA58 /* Stamp build info */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -231,6 +262,7 @@
 				CD8CD88AB9AF48FF5D160DEE /* API.swift in Sources */,
 				E6BDC41C2519B62DEE29420D /* BatteryView.swift in Sources */,
 				7B19D7DD22B097CACC15157C /* NowView.swift in Sources */,
+				A6218D5BC736F79D08A434FD /* PanelDetail.swift in Sources */,
 				D056E0CF02CA7529B922C04E /* PvsWatchApp.swift in Sources */,
 				BA11EDE615250AD5FAD7CF2E /* Screens.swift in Sources */,
 				4B5AEAC55810C825EA2FE5CF /* SettingsView.swift in Sources */,
@@ -246,6 +278,7 @@
 				B1402B4693F030F686E5076B /* API.swift in Sources */,
 				013FA826C8CEAD6184EC557F /* BatteryView.swift in Sources */,
 				0901E4303A6624A063ED281E /* NowView.swift in Sources */,
+				FF6ABD963A255E2F1D25BA33 /* PanelDetail.swift in Sources */,
 				0FC9975A92176AA45582E83B /* PvsWatchMacApp.swift in Sources */,
 				0AC16CB0F2B3B25DE1E56288 /* Screens.swift in Sources */,
 				7B88957AF82789303B09AB0B /* SettingsView.swift in Sources */,
@@ -316,9 +349,10 @@
 		};
 		D625C5041929DC58BAED54A0 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_0A3B7909-935D-4497-9BF3-81DC90FF68EB" /* PvsWatch.xcconfig */;
+			baseConfigurationReference = "TEMP_B96A9C05-E918-41EE-A5E4-2E1005911735" /* PvsWatch.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -382,9 +416,10 @@
 		};
 		D95B949A9B782B09C02AE2D1 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_0A3B7909-935D-4497-9BF3-81DC90FF68EB" /* PvsWatch.xcconfig */;
+			baseConfigurationReference = "TEMP_B96A9C05-E918-41EE-A5E4-2E1005911735" /* PvsWatch.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
