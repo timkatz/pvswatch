@@ -880,8 +880,10 @@ def _inject_battery_units(data, vars_data):
             "v_batt": f("vBattV"),
             "temp_c": f("maxTBattCellDegc"),  # max cell temp = warmest part
             "temp_inv_c": f("tInvtrDegc"),
-            "lifetime_charged_kwh": f("posLtea3phsumKwh"),
-            "lifetime_discharged_kwh": f("negLtea3phsumKwh"),
+            # Battery power is + when discharging, so the "positive" energy
+            # counter is energy out and "negative" is energy in.
+            "lifetime_charged_kwh": f("negLtea3phsumKwh"),
+            "lifetime_discharged_kwh": f("posLtea3phsumKwh"),
             "chrg_limit_kw": f("chrgLimitPmaxKw"),
             "dischrg_limit_kw": f("dischrgLimPmaxKw"),
             "msmt_eps": u.get("msmtEps"),
