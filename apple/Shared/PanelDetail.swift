@@ -48,7 +48,7 @@ struct PanelDetail: View {
                 }
                 .pickerStyle(.segmented)
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
+                TileGrid {
                     Tile(icon: "bolt.fill", label: "Now", value: panel.status == "ok" ? "\(Int(panel.w ?? 0)) W" : panel.status.capitalized,
                          sub: panel.state, color: panel.status == "error" ? Theme.red : Theme.solar)
                     Tile(icon: "sum", label: "This period", value: Fmt.kwh(data?.totalKwh), color: Theme.green)

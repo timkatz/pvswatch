@@ -10,7 +10,7 @@ struct BatteryView: View {
     var body: some View {
         Page {
             if let d = store.battery {
-                Card { SunVaultIllustration(doc: d).frame(height: 300) }
+                Card { SunVaultIllustration(doc: d).frame(height: 230).frame(maxWidth: 560).frame(maxWidth: .infinity) }
                 Summary(doc: d)
                 ModeCards(doc: d)
                 ReserveCard(doc: d)
@@ -140,20 +140,12 @@ private struct Summary: View {
     let doc: BatteryDoc
     var body: some View {
         let b = doc.battery
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-            Card(title: "Charge") {
-                Text(Fmt.pct(b?.soc)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                Text(b.map { $0.stale ? "last reading \(Fmt.time($0.fetchedAt))" : "updated \(Fmt.time($0.fetchedAt))" } ?? " ")
-                    .font(.caption).foregroundStyle(Theme.dim)
-            }
-            Card(title: b?.state == "charging" ? "↓ Charging" : b?.state == "discharging" ? "↑ Discharging" : "· Idle") {
-                Text(Fmt.kw(b?.kw)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                Text(source(b)).font(.caption).foregroundStyle(Theme.dim)
-            }
-            Card(title: "Backup time") {
-                Text(Fmt.backup(b?.backupMin)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                Text("at current load").font(.caption).foregroundStyle(Theme.dim)
-            }
+        TileGrid(wide: 3) {
+            StatTile(label: "Charge", value: Fmt.pct(b?.soc),
+                     sub: b.map { $0.stale ? "last reading \(Fmt.time($0.fetchedAt))" : "updated \(Fmt.time($0.fetchedAt))" })
+            StatTile(label: b?.state == "charging" ? "↓ Charging" : b?.state == "discharging" ? "↑ Discharging" : "· Idle",
+                     value: Fmt.kw(b?.kw), sub: source(b))
+            StatTile(label: "Backup time", value: Fmt.backup(b?.backupMin), sub: "at current load")
         }
     }
 
@@ -173,7 +165,7 @@ private struct ModeCards: View {
 
     var body: some View {
         SectionHead(title: "Battery mode", trailing: store.modeMessage)
-        VStack(spacing: 8) {
+        TileGrid(wide: 3) {
             ForEach(doc.mode.options, id: \.self) { o in
                 let on = doc.mode.value == o.value
                 Button {
@@ -191,6 +183,7 @@ private struct ModeCards: View {
                         Spacer()
                     }
                     .padding(12)
+                    .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96, alignment: .topLeading)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(on ? Theme.accent : Theme.border, lineWidth: on ? 1.5 : 1))
                     .contentShape(Rectangle())
@@ -265,7 +258,7 @@ private struct UnitsCard: View {
     var body: some View {
         if !doc.units.isEmpty {
             SectionHead(title: "Units")
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10)], spacing: 10) {
+            TileGrid(wide: 2) {
                 ForEach(Array(doc.units.enumerated()), id: \.offset) { i, u in
                     Card(title: "Unit \(i + 1)", trailing: u.serial.map { String($0.suffix(6)) }) {
                         Row("Charge", Fmt.pct(u.soc))

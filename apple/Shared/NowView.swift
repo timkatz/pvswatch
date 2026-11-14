@@ -80,7 +80,7 @@ struct PowerTiles: View {
 
     var body: some View {
         let b = now.battery
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+        TileGrid {
             Tile(icon: "sun.max.fill", label: "Solar", value: Fmt.kw(now.solarKw), color: Theme.solar)
             Tile(icon: "house.fill", label: "Home", value: Fmt.kw(now.homeKw), color: Theme.home)
             Tile(icon: "battery.75percent", label: "Battery", value: Fmt.kw(b?.kw),
@@ -100,14 +100,7 @@ struct Tile: View {
     var color: Color
 
     var body: some View {
-        Card {
-            HStack {
-                Image(systemName: icon).foregroundStyle(color)
-                CardLabel(label)
-            }
-            Text(value).font(.system(size: 26, weight: .heavy, design: .rounded)).monospacedDigit()
-            Text(sub ?? " ").font(.caption2.weight(.semibold)).textCase(.uppercase).foregroundStyle(color)
-        }
+        StatTile(icon: icon, label: label, value: value, sub: sub?.uppercased(), color: color, subColor: color)
     }
 }
 
@@ -180,33 +173,27 @@ struct Node: View {
 struct BatterySection: View {
     @Environment(Store.self) private var store
     let now: Now
+    /// The mode buttons; only the laptop posture's control deck shows them here.
+    var showPicker = false
 
     var body: some View {
         let b = now.battery
         SectionHead(title: "SunVault Battery", trailing: b.map { ($0.stale ? "last reading " : "updated ") + Fmt.time($0.fetchedAt) })
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-            Card(title: "State of charge") {
-                Text(Fmt.pct(b?.soc)).font(.system(size: 26, weight: .heavy, design: .rounded))
+        TileGrid {
+            StatTile(label: "State of charge", value: Fmt.pct(b?.soc)) {
                 ProgressView(value: min(1, max(0, b?.soc ?? 0)))
                     .tint((b?.soc ?? 1) < 0.2 ? Theme.red : (b?.soc ?? 1) < 0.5 ? Theme.accent : Theme.green)
+                if let label = b?.modeLabel ?? store.currentMode.flatMap(modeLabel) { ModeChip(label: label) }
             }
-            Card(title: b?.state == "charging" ? "↓ Charging" : b?.state == "discharging" ? "↑ Discharging" : "· Idle") {
-                Text(Fmt.kw(b?.kw)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                Text(chargeText(b)).font(.caption).foregroundStyle(Theme.dim)
-            }
-            Card(title: "Backup time") {
-                Text(Fmt.backup(b?.backupMin)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                Text("at current load").font(.caption).foregroundStyle(Theme.dim)
-            }
+            StatTile(label: b?.state == "charging" ? "↓ Charging" : b?.state == "discharging" ? "↑ Discharging" : "· Idle",
+                     value: Fmt.kw(b?.kw), sub: chargeText(b))
+            StatTile(label: "Backup time", value: Fmt.backup(b?.backupMin), sub: "at current load")
             if let s = now.houseSides {
-                Card(title: "House sides") {
-                    Text(String(format: "%.1f · %.1f kW", s.l1Kw, s.l2Kw)).font(.system(size: 22, weight: .heavy, design: .rounded))
-                    Text(s.balanced ? "balanced" : String(format: "uneven by %.1f kW · battery covers ~%.1f kW", s.gapKw, s.batteryCoverKw))
-                        .font(.caption).foregroundStyle(Theme.dim)
-                }
+                StatTile(label: "House sides", value: String(format: "%.1f · %.1f kW", s.l1Kw, s.l2Kw),
+                         sub: s.balanced ? "balanced" : String(format: "uneven by %.1f kW", s.gapKw))
             }
         }
-        BatteryModePicker()
+        if showPicker { BatteryModePicker() }
     }
 
     private func chargeText(_ b: Now.Battery?) -> String {
@@ -217,6 +204,17 @@ struct BatterySection: View {
         case "discharging": return "powering home"
         default: return "standby"
         }
+    }
+}
+
+func modeLabel(_ value: String) -> String? { batteryModes.first { $0.value == value }?.label }
+
+struct ModeChip: View {
+    let label: String
+    var body: some View {
+        Text("\(label) mode").font(.caption2.weight(.semibold)).foregroundStyle(Theme.accent)
+            .padding(.horizontal, 8).padding(.vertical, 2)
+            .background(Theme.accent.opacity(0.15), in: Capsule())
     }
 }
 

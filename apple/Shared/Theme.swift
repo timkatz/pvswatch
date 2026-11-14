@@ -131,3 +131,66 @@ struct Page<Content: View>: View {
         .scrollContentBackground(.hidden)
     }
 }
+
+// Stat tiles in even columns that fill the width: `wide` columns on a
+// regular-width screen, 2 on a compact one. Every tile is the same height.
+struct TileGrid<Content: View>: View {
+    var wide = 4
+    @ViewBuilder var content: Content
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hsc
+    private var count: Int { hsc == .compact ? min(2, wide) : wide }
+    #else
+    private var count: Int { wide }
+    #endif
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: count), spacing: 10) {
+            content
+        }
+    }
+}
+
+// One number with a label and a line under it, at a fixed height so tiles line up.
+struct StatTile<Footer: View>: View {
+    var icon: String?
+    let label: String
+    let value: String
+    var color: Color = Theme.text
+    var valueColor: Color = Theme.text
+    @ViewBuilder var footer: Footer
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                if let icon { Image(systemName: icon).foregroundStyle(color).font(.footnote) }
+                CardLabel(label).lineLimit(1)
+            }
+            Text(value).font(.system(size: 26, weight: .heavy, design: .rounded)).monospacedDigit()
+                .foregroundStyle(valueColor).lineLimit(1).minimumScaleFactor(0.6)
+                .layoutPriority(1)
+            footer
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 128, maxHeight: 128, alignment: .topLeading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+    }
+}
+
+extension StatTile where Footer == SubLine {
+    init(icon: String? = nil, label: String, value: String, sub: String?, color: Color = Theme.text,
+         subColor: Color = Theme.dim, valueColor: Color = Theme.text) {
+        self.icon = icon; self.label = label; self.value = value; self.color = color; self.valueColor = valueColor
+        self.footer = SubLine(text: sub, color: subColor)
+    }
+}
+
+struct SubLine: View {
+    let text: String?
+    var color: Color = Theme.dim
+    var body: some View {
+        Text(text ?? " ").font(.caption).foregroundStyle(color).lineLimit(2)
+    }
+}

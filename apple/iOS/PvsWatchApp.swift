@@ -107,7 +107,7 @@ struct Tabs: View {
 struct BatteryDeck: View {
     @Environment(Store.self) private var store
     var body: some View {
-        Page { if let n = store.now { BatterySection(now: n) } else { EmptyState() } }
+        Page { if let n = store.now { BatterySection(now: n, showPicker: true) } else { EmptyState() } }
     }
 }
 

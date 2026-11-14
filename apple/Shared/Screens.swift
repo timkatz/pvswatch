@@ -29,7 +29,7 @@ struct HistoryView: View {
 private struct Totals: View {
     let t: History.Totals
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
+        TileGrid {
             Tile(icon: "sun.max.fill", label: "Solar", value: Fmt.kwh(t.solarKwh), color: Theme.solar)
             Tile(icon: "house.fill", label: "Home", value: Fmt.kwh(t.homeKwh), color: Theme.home)
             Tile(icon: "bolt.horizontal.fill", label: "Grid", value: Fmt.kwh(abs(t.gridNetKwh ?? 0)),
@@ -143,7 +143,7 @@ struct MoneyView: View {
 private struct FinanceTiles: View {
     let h: Finance.Headline
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 10)], spacing: 10) {
+        TileGrid(wide: 3) {
             if let y = h.ytd {
                 MoneyTile(label: "\(y.year) so far", value: y.saved,
                           sub: y.prev?.saved.map { "vs \(Fmt.money($0)) by now in \(y.prev!.year)" } ?? "\(y.bills) bills")
@@ -153,10 +153,7 @@ private struct FinanceTiles: View {
                           sub: "paid \(Fmt.money(l.paid)) vs ~\(Fmt.money(l.noSolar)) without solar")
             }
             if let c = h.netCost12, let n = h.bills12, n > 0 {
-                Card(title: "Paid, last \(n) bills") {
-                    Text(Fmt.money(c)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                    Text("\(Fmt.money(c / Double(n)))/mo, utility + solar").font(.caption).foregroundStyle(Theme.dim)
-                }
+                StatTile(label: "Paid, last \(n) bills", value: Fmt.money(c), sub: "\(Fmt.money(c / Double(n)))/mo, utility + solar")
             }
         }
     }
@@ -167,11 +164,8 @@ private struct MoneyTile: View {
     let value: Double?
     let sub: String
     var body: some View {
-        Card(title: label) {
-            Text(Fmt.money(value)).font(.system(size: 26, weight: .heavy, design: .rounded))
-                .foregroundStyle((value ?? 0) >= 0 ? Theme.green : Theme.red)
-            Text(sub).font(.caption).foregroundStyle(Theme.dim)
-        }
+        StatTile(label: label, value: Fmt.money(value), sub: sub,
+                 valueColor: (value ?? 0) >= 0 ? Theme.green : Theme.red)
     }
 }
 
@@ -223,15 +217,11 @@ struct OutagesView: View {
     var body: some View {
         Page {
             if let o = store.outages {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                    Card(title: "Power outages · 30d") {
-                        Text("\(o.summary.grid.count)").font(.system(size: 26, weight: .heavy, design: .rounded))
-                        Text(Fmt.duration(o.summary.grid.totalS) + " total").font(.caption).foregroundStyle(Theme.dim)
-                    }
-                    Card(title: "PVS offline · 30d") {
-                        Text("\(o.summary.pvs.count)").font(.system(size: 26, weight: .heavy, design: .rounded))
-                        Text(Fmt.duration(o.summary.pvs.totalS) + " total").font(.caption).foregroundStyle(Theme.dim)
-                    }
+                TileGrid(wide: 2) {
+                    StatTile(label: "Power outages · 30d", value: "\(o.summary.grid.count)",
+                             sub: Fmt.duration(o.summary.grid.totalS) + " total")
+                    StatTile(label: "PVS offline · 30d", value: "\(o.summary.pvs.count)",
+                             sub: Fmt.duration(o.summary.pvs.totalS) + " total")
                 }
                 Card(title: "Events") {
                     if o.outages.isEmpty { Text("None in the last 30 days").foregroundStyle(Theme.dim) }
