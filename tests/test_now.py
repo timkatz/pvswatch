@@ -93,6 +93,10 @@ class NowTest(unittest.TestCase):
         self.assertEqual([i["status"] for i in p["items"]], ["ok", "ok", "error"])
         self.assertEqual([i["low"] for i in p["items"]], [False, True, False])
 
+        dim = [inverter(kw=0.058), inverter(kw=0.040)]  # best under 100 W: nobody is "low"
+        p = proxy.build_now(snapshot(0.1, 1, inverters=dim))["panels"]
+        self.assertEqual([i["low"] for i in p["items"]], [False, False])
+
     def test_curtime_formats(self):
         a = proxy._curtime_epoch("2026,11,14,18,55,01")
         self.assertEqual(a, proxy._curtime_epoch("2026-11-14T18:55:01Z"))

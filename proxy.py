@@ -3465,7 +3465,9 @@ def _panels_view(inverters, solar_kw):
             "firmware": i.get("SWVER") or None,
             "state": i.get("STATEDESCR") or i.get("STATE") or None,
             "status": status,
-            "low": status == "ok" and max_w > 0 and 0 < w < 0.85 * max_w,
+            # Under ~100 W (dawn, dusk, heavy cloud) small differences look
+            # like big ratios, so only flag a laggard when the best is real.
+            "low": status == "ok" and max_w >= 100 and 0 < w < 0.85 * max_w,
             "w": w if status == "ok" else None,
             "ac_v": _num(i.get("vln_3phavg_v")) or None,
             "dc_v": _num(i.get("v_mppt1_v")) or None,
