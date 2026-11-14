@@ -3470,7 +3470,11 @@ def _panels_view(inverters, solar_kw):
         mode, summary = "idle", f"{len(inverters)} panels idle"
     else:
         mode, summary = "producing", f"{len(inverters)} panels"
-    max_w = max([_fnum(i.get("p_3phsum_kw"), 0) * 1000 for i in inverters] or [0])
+    # "Low" compares with the median producing panel, not the best one: with
+    # panels on two roof faces, half the array legitimately makes ~half the
+    # power, and comparing to the best flagged a whole face.
+    producing = sorted(w for w in (_fnum(i.get("p_3phsum_kw"), 0) * 1000 for i in inverters) if w > 0)
+    median_w = producing[len(producing) // 2] if producing else 0
     items = []
     for i in inverters:
         w = round(_fnum(i.get("p_3phsum_kw"), 0) * 1000)
@@ -3489,8 +3493,8 @@ def _panels_view(inverters, solar_kw):
             "state": i.get("STATEDESCR") or i.get("STATE") or None,
             "status": status,
             # Under ~100 W (dawn, dusk, heavy cloud) small differences look
-            # like big ratios, so only flag a laggard when the best is real.
-            "low": status == "ok" and max_w >= 100 and 0 < w < 0.85 * max_w,
+            # like big ratios, so only flag a laggard when output is real.
+            "low": status == "ok" and median_w >= 100 and 0 < w < 0.7 * median_w,
             "w": w if status == "ok" else None,
             "ac_v": _fnum(i.get("vln_3phavg_v")) or None,
             "dc_v": _fnum(i.get("v_mppt1_v")) or None,

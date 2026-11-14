@@ -90,11 +90,17 @@ class NowTest(unittest.TestCase):
         self.assertEqual(p["mode"], "comms_error")
         self.assertEqual(p["errors"], 3)
 
-        mixed = [inverter(kw=0.3), inverter(kw=0.2), inverter("Error", 0.0)]
-        p = proxy.build_now(snapshot(0.5, 1, inverters=mixed))["panels"]
+        mixed = [inverter(kw=0.3), inverter(kw=0.18), inverter(kw=0.3), inverter("Error", 0.0)]
+        p = proxy.build_now(snapshot(0.8, 1, inverters=mixed))["panels"]
         self.assertEqual(p["mode"], "producing")
-        self.assertEqual([i["status"] for i in p["items"]], ["ok", "ok", "error"])
-        self.assertEqual([i["low"] for i in p["items"]], [False, True, False])
+        self.assertEqual([i["status"] for i in p["items"]], ["ok", "ok", "ok", "error"])
+        self.assertEqual([i["low"] for i in p["items"]], [False, True, False, False])
+
+        # Two roof faces (~270 W and ~140 W): neither face is "low"; a real
+        # laggard on the dim face still is.
+        faces = [inverter(kw=0.27), inverter(kw=0.27), inverter(kw=0.14), inverter(kw=0.14), inverter(kw=0.086)]
+        p = proxy.build_now(snapshot(0.9, 1, inverters=faces))["panels"]
+        self.assertEqual([i["low"] for i in p["items"]], [False, False, False, False, True])
 
         dim = [inverter(kw=0.058), inverter(kw=0.040)]  # best under 100 W: nobody is "low"
         p = proxy.build_now(snapshot(0.1, 1, inverters=dim))["panels"]

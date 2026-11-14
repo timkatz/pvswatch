@@ -34,7 +34,17 @@ struct SettingsView: View {
             }
 
             if let d = store.settings {
-                Section("Battery mode") { BatteryModePicker().listRowInsets(EdgeInsets()) }
+                // Same controls as the SunVault screen.
+                if let b = store.battery {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ModeCards(doc: b)
+                            ReserveCard(doc: b)
+                        }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 8, trailing: 0))
+                        .listRowBackground(Color.clear)
+                    }
+                }
 
                 ForEach(groups(d), id: \.0) { name, items in
                     Section(name) {
@@ -89,10 +99,18 @@ struct SettingsView: View {
     @ViewBuilder private func field(_ item: SettingsDoc.Item) -> some View {
         let binding = Binding(get: { drafts[item.key] ?? item.value.text }, set: { drafts[item.key] = $0 })
         if item.type == "json" {
-            VStack(alignment: .leading) {
-                Text(item.label)
-                TextEditor(text: binding).font(.system(.caption, design: .monospaced)).frame(minHeight: 120)
-                if item.overridden { Button("Reset to default") { resetKey(item.key) }.font(.caption) }
+            // The rate plan reads as a summary; the raw JSON is one tap away.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(item.label.replacingOccurrences(of: " (JSON)", with: ""))
+                    Spacer()
+                    Text(item.value.text.isEmpty ? "flat rate" : touSummary).font(.caption).foregroundStyle(Theme.dim)
+                }
+                DisclosureGroup("Edit plan") {
+                    TextEditor(text: binding).font(.system(.caption, design: .monospaced)).frame(minHeight: 140)
+                    if item.overridden { Button("Reset to default") { resetKey(item.key) }.font(.caption) }
+                }
+                .font(.caption)
             }
         } else {
             HStack {
@@ -113,6 +131,12 @@ struct SettingsView: View {
                 if let u = item.unit { Text(u).font(.caption).foregroundStyle(Theme.dim).frame(minWidth: 34, alignment: .leading) }
             }
         }
+    }
+
+    private var touSummary: String {
+        guard let t = store.tou, t.enabled else { return "set" }
+        let n = t.today?.count ?? 0
+        return "\(t.season.map { $0.capitalized + " · " } ?? "")\(n) periods today"
     }
 
     private func changes(_ d: SettingsDoc) -> [String: Any?] {
