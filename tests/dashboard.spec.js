@@ -266,3 +266,33 @@ test('API v1 aliases serve the same data as the legacy paths', async ({ request 
   expect((await request.get('/api/v1/history?range=24h')).ok()).toBeTruthy();
   expect((await request.post('/api/v1/battery/mode', { data: { mode: 'NOPE' } })).status()).toBe(400);
 });
+
+test('API v1 settings: read, change, validate, reset', async ({ request }) => {
+  const s = await (await request.get('/api/v1/settings')).json();
+  const stale = s.settings.find(x => x.key === 'ALERT_STALE_MINS');
+  expect(stale.value).toBe(stale.default);
+  expect(s.battery_mode.options.BACKUP_ONLY).toBe('Reserve');
+  expect(JSON.stringify(s)).not.toMatch(/token|PVS_PASS/i);
+
+  let r = await request.patch('/api/v1/settings', { data: { ALERT_STALE_MINS: 45, COST_PER_KWH: 0.4 } });
+  expect(r.ok()).toBeTruthy();
+  let v = await r.json();
+  expect(v.settings.find(x => x.key === 'ALERT_STALE_MINS')).toMatchObject({ value: 45, overridden: true });
+
+  // One bad value rejects the whole change.
+  r = await request.patch('/api/v1/settings', { data: { COST_PER_KWH: 0.5, ALERT_BATTERY_PCT: 500 } });
+  expect(r.status()).toBe(400);
+  r = await request.patch('/api/v1/settings', { data: { SOLAR_COST_START: '2026-13' } });
+  expect(r.status()).toBe(400);
+  r = await request.patch('/api/v1/settings', { data: { NTFY_TOKEN: 'x' } });
+  expect(r.status()).toBe(400);
+  v = await (await request.get('/api/v1/settings')).json();
+  expect(v.settings.find(x => x.key === 'COST_PER_KWH').value).toBe(0.4);
+
+  r = await request.patch('/api/v1/settings', { data: { ALERT_STALE_MINS: null, COST_PER_KWH: null } });
+  v = await r.json();
+  expect(v.settings.every(x => !x.overridden)).toBeTruthy();
+
+  r = await request.patch('/api/v1/settings', { headers: { 'Sec-Fetch-Site': 'cross-site' }, data: { ALERT_STALE_MINS: 50 } });
+  expect(r.status()).toBe(403);
+});

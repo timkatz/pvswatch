@@ -26,6 +26,8 @@ Writes (`POST`/`DELETE`) are refused when a browser marks them cross-site (`Sec-
 | GET | `/api/v1/finance?group=month&spread=1` | Bills, no-solar estimates, net cost and savings |
 | GET | `/api/v1/tou` | Rate plan, today's time-of-use segments, current period |
 | GET | `/api/v1/health` | Cache status, history count, `history_earliest` |
+| GET | `/api/v1/settings` | Editable settings with defaults, the battery mode, and what's configured (below) |
+| PATCH | `/api/v1/settings` | `{KEY: value, …}`; `null` resets a key to its `.env` default. All-or-nothing: 400 on any bad value |
 
 Battery modes, as the SunStrong app names them: `SELF_CONSUMPTION` is Self-Supply, `ENERGY_ARBITRAGE` is Cost Savings, `BACKUP_ONLY` is Reserve.
 
@@ -82,5 +84,27 @@ Battery modes, as the SunStrong app names them: `SELF_CONSUMPTION` is Self-Suppl
 ```
 
 After dark every SunPower inverter reports `STATE=error, OPERATION=noop`, because powerline comms need DC from the panels. With near-zero production, `/now` reports that as `panels.mode = "night"` with each panel `idle`, not as errors.
+
+## `/api/v1/settings`
+
+`.env` gives the defaults. A change is stored in the database and takes effect at once, with no restart. Secrets (PVS password, tokens, ntfy URLs) stay in `.env` only and are never returned.
+
+```jsonc
+{
+  "settings": [
+    { "key": "ALERT_STALE_MINS", "group": "Alerts", "label": "Alert when the PVS is silent for",
+      "type": "int", "min": 5, "max": 1440, "unit": "min",
+      "value": 30, "default": 30, "overridden": false }
+    // ALERT_BATTERY_PCT, OUTAGE_GAP_MINS, COST_PER_KWH, TOU_RATES (type "json"),
+    // CO2_LBS_PER_KWH, SOLAR_MONTHLY_COST, SOLAR_COST_START ("YYYY-MM"), UTILITY_API_SYNC_HOURS
+  ],
+  "battery_mode": { "value": "ENERGY_ARBITRAGE",
+                    "options": { "SELF_CONSUMPTION": "Self-Supply", "ENERGY_ARBITRAGE": "Cost Savings", "BACKUP_ONLY": "Reserve" } },
+  "status": { "mock": false, "pvs_configured": true, "alerts": true, "alerts_fallback": true,
+              "ups_tracking": true, "utility_api": true, "refresh_secs": 300 }
+}
+```
+
+Group settings by `group` and render the input from `type`, `min`, `max` and `unit`. The battery mode is changed with `POST /api/v1/battery/mode`, not here.
 
 The legacy paths (`/devices`, `/history`, `/tou`, …) still work while the dashboard moves to v1.

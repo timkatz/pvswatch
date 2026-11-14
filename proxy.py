@@ -254,6 +254,11 @@ def _init_db():
         delivered_kwh REAL,
         received_kwh REAL
     )""")
+    # Settings changed from the dashboard/apps; override the env defaults.
+    c.execute("""CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )""")
     # Idempotent migrations.
     # battery_*  added 2026-04-25 — sign: battery_kw > 0 = discharging.
     # home_lifetime_kwh / grid_lifetime_kwh added 2026-04-25 — cumulative
@@ -2690,7 +2695,7 @@ def _same_origin_writes():
     tag requests from other sites (Sec-Fetch-Site); refuse those. Checked
     this way rather than Origin vs Host because the Tailscale proxy rewrites
     Host. Non-browser clients (curl) send no header and pass."""
-    if request.method in ("POST", "DELETE"):
+    if request.method in ("POST", "PATCH", "DELETE"):
         if request.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
             return jsonify({"error": "cross-site write refused"}), 403
 
@@ -3567,6 +3572,141 @@ def api_now():
     return jsonify(build_now(json.loads(raw), cache.last_fetch))
 
 
+# ── Settings ──────────────────────────────────────────────────────────
+# What the apps can change. .env gives the defaults; a change is stored in
+# the settings table and applied to the running globals at once. Secrets
+# (PVS password, tokens, ntfy URLs) stay env-only and are never returned.
+def _yyyy_mm(v):
+    v = str(v or "").strip()
+    if v and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", v):
+        raise ValueError("use YYYY-MM")
+    return v
+
+
+def _tou_json(v):
+    v = v if isinstance(v, str) else json.dumps(v) if v else ""
+    if v.strip() and _load_tou(v) is None:
+        raise ValueError("not a valid rate plan")
+    return v.strip()
+
+
+SETTINGS = [
+    # key, group, label, type/validator, min, max, unit
+    ("ALERT_STALE_MINS", "Alerts", "Alert when the PVS is silent for", int, 5, 1440, "min"),
+    ("ALERT_BATTERY_PCT", "Alerts", "Alert when the battery drops below", float, 0, 100, "%"),
+    ("OUTAGE_GAP_MINS", "Outages", "Count a data gap as an outage after", int, 5, 720, "min"),
+    ("COST_PER_KWH", "Rates", "Flat rate (used without a TOU plan)", float, 0, 5, "$/kWh"),
+    ("TOU_RATES", "Rates", "Time-of-use plan (JSON)", _tou_json, None, None, None),
+    ("CO2_LBS_PER_KWH", "Rates", "Grid emissions", float, 0, 5, "lbs/kWh"),
+    ("SOLAR_MONTHLY_COST", "Solar payment", "Monthly solar payment", float, 0, 10000, "$"),
+    ("SOLAR_COST_START", "Solar payment", "Payment starts (YYYY-MM)", _yyyy_mm, None, None, None),
+    ("UTILITY_API_SYNC_HOURS", "Utility data", "Sync bills every", float, 0, 720, "h"),
+]
+_SETTINGS_BY_KEY = {s[0]: s for s in SETTINGS}
+_SETTINGS_DEFAULTS = {}
+
+
+def _settings_current(key):
+    return TOU_RATES_RAW if key == "TOU_RATES" else globals()[key]
+
+
+def _settings_apply(key, value):
+    """Validate and set one running global. Returns the stored value."""
+    _, _, _, kind, lo, hi, _ = _SETTINGS_BY_KEY[key]
+    value = kind(value)
+    if lo is not None and not lo <= value <= hi:
+        raise ValueError(f"must be between {lo} and {hi}")
+    if key == "TOU_RATES":
+        global TOU_RATES_RAW, TOU_PLAN
+        TOU_RATES_RAW, TOU_PLAN = value, _load_tou(value)
+    else:
+        globals()[key] = value
+    return value
+
+
+def _load_settings():
+    """Remember the env defaults, then apply stored overrides."""
+    for key in _SETTINGS_BY_KEY:
+        _SETTINGS_DEFAULTS.setdefault(key, _settings_current(key))
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        conn.close()
+    except sqlite3.Error:
+        return
+    for key, raw in rows:
+        if key in _SETTINGS_BY_KEY:
+            try:
+                _settings_apply(key, json.loads(raw))
+            except (ValueError, TypeError) as e:
+                logger.warning("Ignoring stored setting %s: %s", key, e)
+
+
+def _settings_view():
+    if not _SETTINGS_DEFAULTS:
+        _load_settings()
+    items = []
+    for key, group, label, kind, lo, hi, unit in SETTINGS:
+        value = _settings_current(key)
+        items.append({
+            "key": key, "group": group, "label": label, "unit": unit,
+            "type": {int: "int", float: "number"}.get(kind, "json" if key == "TOU_RATES" else "text"),
+            "min": lo, "max": hi, "value": value, "default": _SETTINGS_DEFAULTS[key],
+            "overridden": value != _SETTINGS_DEFAULTS[key],
+        })
+    return {
+        "settings": items,
+        "battery_mode": {"value": _battery_mode["value"], "options": BATTERY_MODES},
+        # What's wired up, for the Settings screen to explain. No secrets.
+        "status": {
+            "mock": MOCK_PVS,
+            "pvs_configured": bool(PVS_IP and PVS_PASS),
+            "alerts": bool(NTFY_URL), "alerts_fallback": bool(NTFY_FALLBACK_URL),
+            "ups_tracking": bool(UPS_EVENTS_FILE and os.path.isfile(UPS_EVENTS_FILE)),
+            "utility_api": bool(UTILITY_API_TOKEN),
+            "refresh_secs": REFRESH_SECS,
+        },
+    }
+
+
+@app.route("/api/v1/settings", methods=["GET"])
+def api_settings():
+    return jsonify(_settings_view())
+
+
+@app.route("/api/v1/settings", methods=["PATCH"])
+def api_settings_update():
+    """Body: {KEY: value, ...}. null resets a key to its .env default.
+    All-or-nothing: one bad value and nothing changes."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body:
+        return jsonify({"error": "send a JSON object of settings"}), 400
+    unknown = [k for k in body if k not in _SETTINGS_BY_KEY]
+    if unknown:
+        return jsonify({"error": f"unknown setting: {', '.join(unknown)}"}), 400
+    if not _SETTINGS_DEFAULTS:
+        _load_settings()
+    before = {k: _settings_current(k) for k in body}
+    stored = {}
+    try:
+        for key, value in body.items():
+            stored[key] = _settings_apply(key, _SETTINGS_DEFAULTS[key] if value is None else value)
+    except (ValueError, TypeError) as e:
+        for k, v in before.items():
+            _settings_apply(k, v)
+        return jsonify({"error": f"{key}: {e}"}), 400
+    conn = sqlite3.connect(DB_PATH)
+    for key, value in stored.items():
+        if body[key] is None:
+            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        else:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, json.dumps(value)))
+    conn.commit()
+    conn.close()
+    logger.info("Settings changed: %s", ", ".join(stored))
+    return jsonify(_settings_view())
+
+
 # The rest of v1 is already display-ready; these are the stable v1 paths.
 for _rule, _view, _methods in [
     ("/api/v1/history", "history", ["GET"]),
@@ -3611,6 +3751,7 @@ def health():
 
 if __name__ == "__main__":
     _init_db()
+    _load_settings()
     _load_dashboard()
 
     if MOCK_PVS:
