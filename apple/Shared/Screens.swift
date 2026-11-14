@@ -245,8 +245,21 @@ private struct MonthlyYoY: View {
     @State private var sel: String?
     var body: some View {
         Chart {
+            ForEach(rows) { r in
+                BarMark(x: .value("Month", shortMonth(r.key)), y: .value("$", r.total ?? 0))
+                    .foregroundStyle(by: .value("Series", "This year"))
+                    .cornerRadius(3)
+                    .opacity(sel == nil || sel == shortMonth(r.key) ? 1 : 0.35)
+                if let y = r.yoyTotal {
+                    PointMark(x: .value("Month", shortMonth(r.key)), y: .value("$", y))
+                        .foregroundStyle(by: .value("Series", "Year before"))
+                        .symbolSize(60)
+                        .opacity(sel == nil || sel == shortMonth(r.key) ? 1 : 0.35)
+                }
+            }
+            // Drawn last so the tooltip sits on top of the bars.
             if let sel, let r = rows.first(where: { shortMonth($0.key) == sel }) {
-                RuleMark(x: .value("Month", sel)).foregroundStyle(Theme.dim.opacity(0.25)).lineStyle(StrokeStyle(lineWidth: 28))
+                RuleMark(x: .value("Month", sel)).foregroundStyle(.clear)
                     .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         ChartTip(title: monthLabel(r.key), rows: [
                             ("Paid", Fmt.money(r.total), Theme.accent),
@@ -255,16 +268,6 @@ private struct MonthlyYoY: View {
                             ("Solar", r.saved.map { ($0 >= 0 ? "saved " : "lost ") + Fmt.money(abs($0)) } ?? "—", (r.saved ?? 0) >= 0 ? Theme.green : Theme.red),
                         ])
                     }
-            }
-            ForEach(rows) { r in
-                BarMark(x: .value("Month", shortMonth(r.key)), y: .value("$", r.total ?? 0))
-                    .foregroundStyle(by: .value("Series", "This year"))
-                    .cornerRadius(3)
-                if let y = r.yoyTotal {
-                    PointMark(x: .value("Month", shortMonth(r.key)), y: .value("$", y))
-                        .foregroundStyle(by: .value("Series", "Year before"))
-                        .symbolSize(60)
-                }
             }
         }
         .chartXSelection(value: $sel)
@@ -281,8 +284,23 @@ private struct YearBars: View {
     private func label(_ r: Finance.Row) -> String { r.key + (r.inProgress == true ? " (so far)" : "") }
     var body: some View {
         Chart {
+            ForEach(rows) { r in
+                BarMark(x: .value("Year", label(r)), y: .value("$", r.total ?? 0))
+                    .foregroundStyle(by: .value("Series", "Paid"))
+                    .position(by: .value("Series", "Paid"))
+                    .cornerRadius(4)
+                    .opacity(sel == nil || sel == label(r) ? 1 : 0.35)
+                if let n = r.noSolar {
+                    BarMark(x: .value("Year", label(r)), y: .value("$", n))
+                        .foregroundStyle(by: .value("Series", "Without solar"))
+                        .position(by: .value("Series", "Without solar"))
+                        .cornerRadius(4)
+                        .opacity(sel == nil || sel == label(r) ? 1 : 0.35)
+                }
+            }
+            // Drawn last so the tooltip sits on top of the bars.
             if let sel, let r = rows.first(where: { label($0) == sel }) {
-                RuleMark(x: .value("Year", sel)).foregroundStyle(Theme.dim.opacity(0.18)).lineStyle(StrokeStyle(lineWidth: 90))
+                RuleMark(x: .value("Year", sel)).foregroundStyle(.clear)
                     .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         ChartTip(title: label(r), rows: [
                             ("Paid", Fmt.money(r.total), Theme.accent),
@@ -291,16 +309,6 @@ private struct YearBars: View {
                             ("vs year before", changeText(r.total, r.yoyTotal), (r.total ?? 0) > (r.yoyTotal ?? 0) ? Theme.red : Theme.green),
                         ])
                     }
-            }
-            ForEach(rows) { r in
-                BarMark(x: .value("Year", r.key + (r.inProgress == true ? " (so far)" : "")), y: .value("$", r.total ?? 0))
-                    .foregroundStyle(by: .value("Series", "Paid"))
-                    .position(by: .value("Series", "Paid"))
-                if let n = r.noSolar {
-                    BarMark(x: .value("Year", r.key + (r.inProgress == true ? " (so far)" : "")), y: .value("$", n))
-                        .foregroundStyle(by: .value("Series", "Without solar"))
-                        .position(by: .value("Series", "Without solar"))
-                }
             }
         }
         .chartXSelection(value: $sel)
