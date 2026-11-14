@@ -1,51 +1,118 @@
 import SwiftUI
 
+// Now never scrolls: everything is sized to the screen, folded or open.
+// The diagram takes whatever height is left after the fixed rows.
 struct NowView: View {
     @Environment(Store.self) private var store
-    /// Leave out the battery section (laptop posture shows it on the other leaf).
-    var compact = false
-    @State private var width: CGFloat = 0
 
     var body: some View {
-        Page {
+        GeometryReader { g in
             if let n = store.now {
-                if width >= 760 {
-                    // Wide (open Duo, landscape, Mac): one-screen dashboard —
-                    // the flow on the left, status/tiles/breakdown on the right,
-                    // sized to the screen so nothing important needs a scroll.
-                    HStack(alignment: .top, spacing: 12) {
-                        // The card hugs the diagram (aspect-fit), no stretched empty band.
-                        Card(title: "Energy flow", trailing: n.fetchedAt.map { "live · " + Fmt.time($0) }) {
-                            FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                        .frame(maxHeight: .infinity)
-                        VStack(spacing: 10) {
-                            StatusStrip(now: n)
-                            PowerTiles(now: n)
-                                .environment(\.statTileHeight, 84)
-                                .environment(\.tileMinWidth, 120)
-                            Card { FlowLegend(now: n, compact: true) }
-                        }
-                        .frame(width: min(400, max(300, width * 0.4)))
-                    }
-                    .fixedSize(horizontal: false, vertical: true)   // both columns end level
-                } else {
-                    StatusStrip(now: n)
-                    PowerTiles(now: n)
-                    FlowCard(now: n)
+                Group {
+                    if g.size.width >= 760 { wide(n, g.size) }
+                    else if g.size.width > g.size.height { short(n, g.size) }
+                    else { narrow(n) }
                 }
-                if let t = store.today { TodayTiles(t: t) }
-                if !compact { BatterySection(now: n) }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
+                .frame(width: g.size.width, height: g.size.height)
             } else {
-                EmptyState()
+                EmptyState().frame(width: g.size.width, height: g.size.height)
             }
         }
-        .refreshable { await store.refreshAll() }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .background(Theme.bg)
         #if os(iOS)
-        // The big title would sit on top of the one-screen dashboard.
-        .navigationBarTitleDisplayMode(width >= 760 ? .inline : .automatic)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    // Folded Duo, open portrait, a Duo half: one column.
+    private func narrow(_ n: Now) -> some View {
+        VStack(spacing: 10) {
+            StatusStrip(now: n)
+            PowerTiles(now: n)
+                .environment(\.statTileHeight, 66)
+                .environment(\.tileMinWidth, 110)   // 4 across when there's room, else 2×2
+            Card(title: "Energy flow", trailing: n.flow.selfPoweredPct.map { "\(Int($0))% self-powered" }) {
+                FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text(n.flow.headline).font(.caption).foregroundStyle(Theme.dim)
+                    .lineLimit(2).frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxHeight: .infinity)
+            if let t = store.today { TodayStrip(t: t) }
+        }
+    }
+
+    // Small and wide (folded Duo in landscape): too short for one column,
+    // so diagram left; status, tiles and today right.
+    private func short(_ n: Now, _ size: CGSize) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Card {
+                FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxHeight: .infinity)
+            VStack(spacing: 8) {
+                StatusStrip(now: n, compact: true)
+                PowerTiles(now: n)
+                    .environment(\.statTileHeight, 66)
+                    .environment(\.tileMinWidth, 110)
+                Spacer(minLength: 0)
+                if let t = store.today { TodayStrip(t: t) }
+            }
+            .frame(width: size.width * 0.44)
+        }
+    }
+
+    // Open landscape, Mac: diagram left; status, tiles and breakdown right.
+    private func wide(_ n: Now, _ size: CGSize) -> some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Card(title: "Energy flow", trailing: n.fetchedAt.map { "live · " + Fmt.time($0) }) {
+                    FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxHeight: .infinity)
+                VStack(spacing: 10) {
+                    StatusStrip(now: n)
+                    PowerTiles(now: n)
+                        .environment(\.statTileHeight, 84)
+                        .environment(\.tileMinWidth, 120)
+                    Card { FlowLegend(now: n, compact: true) }
+                    Spacer(minLength: 0)
+                }
+                .frame(width: min(400, max(300, size.width * 0.4)))
+            }
+            .frame(maxHeight: .infinity)
+            if let t = store.today { TodayStrip(t: t) }
+        }
+    }
+}
+
+// Today in one slim row: solar, home, independence, saved.
+struct TodayStrip: View {
+    let t: History.Totals
+    var body: some View {
+        HStack(spacing: 0) {
+            item("Solar today", Fmt.kwh(t.solarKwh), Theme.solar)
+            divider
+            item("Home today", Fmt.kwh(t.homeKwh), Theme.home)
+            divider
+            item("Independence", t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—", Theme.green)
+            divider
+            item("Saved", Fmt.money(t.savingsDollars, cents: true), Theme.green)
+        }
+        .padding(.vertical, 10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+    }
+    private var divider: some View { Rectangle().fill(Theme.border).frame(width: 1, height: 26) }
+    private func item(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(label.uppercased()).font(.system(size: 8.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Text(value).font(.system(size: 15, weight: .bold, design: .rounded)).monospacedDigit()
+                .foregroundStyle(label == "Saved" ? color : Theme.text).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -72,6 +139,8 @@ struct EmptyState: View {
 struct StatusStrip: View {
     @Environment(Store.self) private var store
     let now: Now
+    /// One line: grid state + the current rate (short screens).
+    var compact = false
 
     var body: some View {
         let kind = store.sunvault?.kind ?? now.gridState.kind
@@ -87,7 +156,9 @@ struct StatusStrip: View {
                     Text("PVS \(Fmt.time(t))").font(.caption2).foregroundStyle(Theme.dim)
                 }
             }
-            if let p = store.tou?.now {
+            if let p = store.tou?.now, compact {
+                Text("\(p.name) · \(Int((p.rate * 100).rounded()))¢/kWh").font(.footnote).foregroundStyle(Theme.dim).lineLimit(1)
+            } else if let p = store.tou?.now {
                 HStack(spacing: 4) {
                     Text(p.name).font(.footnote.weight(.semibold))
                     Text("now · \(Int((p.rate * 100).rounded()))¢/kWh").font(.footnote).foregroundStyle(Theme.dim)
@@ -258,11 +329,12 @@ struct FlowDiagram: View {
                 .frame(width: n.r * 2 * k, height: n.r * 2 * k)
             VStack(spacing: 1) {
                 if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 18 * k)).foregroundStyle(n.color) }
-                Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim)
-                Text(value).font(.system(size: fs(15, k, floor: 12), weight: .heavy)).monospacedDigit()
+                // Tiny diagrams: just the number (the colors say which node is which).
+                if k >= 0.55 { Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim) }
+                Text(value).font(.system(size: fs(15, k, floor: 11), weight: .heavy)).monospacedDigit()
                 if let sub, k >= 0.7 { Text(sub).font(.system(size: fs(9, k, floor: 8), weight: .semibold)).foregroundStyle(Theme.dim) }
             }
-            .lineLimit(1).minimumScaleFactor(0.8)
+            .lineLimit(1).minimumScaleFactor(0.55)
             .frame(width: n.r * 2 * k - 6)
         }
         .position(c)
@@ -292,11 +364,11 @@ struct FlowDiagram: View {
                 .frame(width: n.r * 2 * k, height: n.r * 2 * k)
             VStack(spacing: 2) {
                 if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 22 * k)).foregroundStyle(n.color) }
-                Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim)
-                Text(Fmt.kw(now.homeKw)).font(.system(size: fs(21, k, floor: 15), weight: .heavy)).monospacedDigit()
+                if k >= 0.55 { Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim) }
+                Text(Fmt.kw(now.homeKw)).font(.system(size: fs(21, k, floor: 13), weight: .heavy)).monospacedDigit()
                 // self-powered lives in the ring + the legend
             }
-            .lineLimit(1).minimumScaleFactor(0.8)
+            .lineLimit(1).minimumScaleFactor(0.55)
             .frame(width: n.r * 2 * k - 8)
         }
         .position(c)

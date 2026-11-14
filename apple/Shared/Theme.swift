@@ -181,18 +181,20 @@ struct StatTile<Footer: View>: View {
     @ViewBuilder var footer: Footer
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Short tiles (fit-to-screen layouts) tighten up so the last line clears the border.
+        let small = height < 80
+        VStack(alignment: .leading, spacing: small ? 2 : 6) {
             HStack(spacing: 6) {
                 if let icon { Image(systemName: icon).foregroundStyle(color).font(.footnote) }
                 CardLabel(label).lineLimit(1)
             }
-            Text(value).font(.system(size: 26, weight: .heavy, design: .rounded)).monospacedDigit()
+            Text(value).font(.system(size: small ? 20 : 26, weight: .heavy, design: .rounded)).monospacedDigit()
                 .foregroundStyle(valueColor).lineLimit(1).minimumScaleFactor(0.6)
                 .layoutPriority(1)
             footer
             Spacer(minLength: 0)
         }
-        .padding(14)
+        .padding(small ? 10 : 14)
         .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
