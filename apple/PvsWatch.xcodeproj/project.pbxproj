@@ -47,7 +47,7 @@
 		D8A4FC58C2E483E430DC7DEA /* PvsWatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PvsWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE1717875438644BE8D65D24 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		EF4C35E21819CAE7E9F3CB8D /* PvsWatchMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PvsWatchMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		"TEMP_9D784383-EEB6-44FC-97B8-493B9B79A5EC" /* PvsWatch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PvsWatch.xcconfig; sourceTree = "<group>"; };
+		"TEMP_50ECB0FA-A0A6-4DAA-B6AB-E083E4D4BBA4" /* PvsWatch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PvsWatch.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -106,10 +106,10 @@
 			);
 			sourceTree = "<group>";
 		};
-		"TEMP_E2C8985C-FC63-4420-BF0E-E3D30AD6CB35" /* apple */ = {
+		"TEMP_D16C650C-A44D-4EF1-8791-F067BB9F13B2" /* apple */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_9D784383-EEB6-44FC-97B8-493B9B79A5EC" /* PvsWatch.xcconfig */,
+				"TEMP_50ECB0FA-A0A6-4DAA-B6AB-E083E4D4BBA4" /* PvsWatch.xcconfig */,
 			);
 			path = apple;
 			sourceTree = "<group>";
@@ -349,7 +349,7 @@
 		};
 		D625C5041929DC58BAED54A0 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_9D784383-EEB6-44FC-97B8-493B9B79A5EC" /* PvsWatch.xcconfig */;
+			baseConfigurationReference = "TEMP_50ECB0FA-A0A6-4DAA-B6AB-E083E4D4BBA4" /* PvsWatch.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -416,7 +416,7 @@
 		};
 		D95B949A9B782B09C02AE2D1 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_9D784383-EEB6-44FC-97B8-493B9B79A5EC" /* PvsWatch.xcconfig */;
+			baseConfigurationReference = "TEMP_50ECB0FA-A0A6-4DAA-B6AB-E083E4D4BBA4" /* PvsWatch.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;

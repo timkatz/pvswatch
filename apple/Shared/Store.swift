@@ -79,6 +79,12 @@ final class Store {
 
     private var loop: Task<Void, Never>?
 
+    init() {
+        // A `-server` launch argument only lives for that launch; save it so
+        // the app keeps the address when opened from the home screen.
+        if !server.isEmpty { UserDefaults.standard.set(server, forKey: "server") }
+    }
+
     func start() {
         guard loop == nil else { return }
         loop = Task { [weak self] in

@@ -45,6 +45,7 @@ struct Now: Decodable {
     struct Flow: Decodable {
         let paths: [String: Double]
         let headline: String
+        let selfPoweredPct: Double?
     }
     struct Electrical: Decodable {
         let systemV: Double?

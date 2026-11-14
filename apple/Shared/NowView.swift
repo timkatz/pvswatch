@@ -10,7 +10,7 @@ struct NowView: View {
             if let n = store.now {
                 StatusStrip(now: n)
                 PowerTiles(now: n)
-                Card { FlowDiagram(now: n).frame(height: 300) }
+                Card { FlowDiagram(now: n).frame(height: 340) }
                 if let t = store.today { TodayTiles(t: t) }
                 if !compact { BatterySection(now: n) }
             } else {
@@ -105,69 +105,157 @@ struct Tile: View {
     }
 }
 
-// Four nodes; the server says how much flows along each edge.
-struct FlowDiagram: View {
-    let now: Now
-    @State private var phase: CGFloat = 0
+// Power flow: home in the middle, solar above, grid left, battery right.
+// Same drawing as the web (600×420 design space). Active edges glow in the
+// source's color and thicken with kW; particles run faster with more power.
+private enum FD {
+    static let size = CGSize(width: 600, height: 440)
+    static let top: CGFloat = 32   // headroom so the solar halo isn't clipped
+    struct Node { let x, y, r: CGFloat; let icon, label: String; let color: Color }
+    static let solar = Node(x: 300, y: 62, r: 46, icon: "sun.max.fill", label: "SOLAR", color: Theme.solar)
+    static let grid = Node(x: 92, y: 232, r: 46, icon: "bolt.horizontal.fill", label: "GRID", color: Theme.grid)
+    static let battery = Node(x: 508, y: 232, r: 46, icon: "battery.75percent", label: "BATTERY", color: Theme.green)
+    static let home = Node(x: 300, y: 232, r: 60, icon: "house.fill", label: "HOME", color: Theme.home)
 
-    var body: some View {
-        GeometryReader { g in
-            let w = g.size.width, h = g.size.height
-            let r: CGFloat = 40
-            let solar = CGPoint(x: w / 2, y: r + 4)
-            let battery = CGPoint(x: w / 2, y: h - r - 30)
-            let gridP = CGPoint(x: max(r + 8, w / 2 - 150), y: (solar.y + battery.y) / 2)
-            let home = CGPoint(x: min(w - r - 8, w / 2 + 150), y: (solar.y + battery.y) / 2)
-            let paths = now.flow.paths
-            let edges: [(String, CGPoint, CGPoint, Color)] = [
-                ("solar_home", solar, home, Theme.solar), ("solar_battery", solar, battery, Theme.solar),
-                ("solar_grid", solar, gridP, Theme.solar), ("battery_home", battery, home, Theme.battery),
-                ("battery_grid", battery, gridP, Theme.battery), ("grid_home", gridP, home, Theme.grid),
-                ("grid_battery", gridP, battery, Theme.grid),
-            ]
-            ZStack {
-                ForEach(edges, id: \.0) { key, a, b, color in
-                    let kw = paths[key] ?? 0
-                    Path { p in p.move(to: a); p.addLine(to: b) }
-                        .stroke(kw > 0.01 ? color : Theme.border,
-                                style: StrokeStyle(lineWidth: kw > 0.01 ? 2.5 : 1, lineCap: .round,
-                                                   dash: kw > 0.01 ? [6, 8] : [], dashPhase: -phase))
-                }
-                Node(icon: "sun.max.fill", label: "Solar", value: Fmt.kw(now.solarKw), color: Theme.solar, active: now.solarKw > 0.01).position(solar)
-                Node(icon: "house.fill", label: "Home", value: Fmt.kw(now.homeKw), color: Theme.home, active: true).position(home)
-                Node(icon: "bolt.horizontal.fill", label: "Grid", value: now.grid.direction == "balanced" ? "0.0 kW" : Fmt.kw(now.grid.kw),
-                     color: Theme.grid, active: now.grid.direction != "balanced").position(gridP)
-                Node(icon: "battery.75percent", label: "Battery", value: Fmt.kw(now.battery?.kw),
-                     sub: Fmt.pct(now.battery?.soc), color: Theme.battery, active: now.battery?.state != "idle").position(battery)
-                Text(now.flow.headline)
-                    .font(.footnote).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
-                    .frame(width: w).position(x: w / 2, y: h - 8)
-            }
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) { phase = 14 }
-        }
+    static func line(_ a: CGPoint, _ b: CGPoint) -> Path { Path { $0.move(to: a); $0.addLine(to: b) } }
+    static func curve(_ a: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ b: CGPoint) -> Path {
+        Path { $0.move(to: a); $0.addCurve(to: b, control1: c1, control2: c2) }
     }
+    /// Path length in design-space points (sampled once).
+    static func length(_ key: String) -> Double {
+        if let l = lengths[key] { return l }
+        guard let e = edges.first(where: { $0.key == key }) else { return 100 }
+        var total = 0.0, last: CGPoint?
+        for i in 0...60 {
+            guard let pt = e.path.trimmedPath(from: 0, to: max(0.001, Double(i) / 60)).currentPoint else { continue }
+            if let l = last { total += hypot(pt.x - l.x, pt.y - l.y) }
+            last = pt
+        }
+        lengths[key] = total
+        return total
+    }
+    nonisolated(unsafe) static var lengths: [String: Double] = [:]
+
+    static let edges: [(key: String, path: Path, color: Color, track: Bool)] = [
+        ("solar_home", line(.init(x: 300, y: 110), .init(x: 300, y: 170)), Theme.solar, true),
+        ("grid_home", line(.init(x: 140, y: 232), .init(x: 238, y: 232)), Theme.grid, true),
+        ("battery_home", line(.init(x: 460, y: 232), .init(x: 362, y: 232)), Theme.green, true),
+        ("solar_battery", curve(.init(x: 344, y: 80), .init(x: 430, y: 88), .init(x: 500, y: 128), .init(x: 508, y: 184)), Theme.solar, true),
+        ("solar_grid", curve(.init(x: 256, y: 80), .init(x: 170, y: 88), .init(x: 100, y: 128), .init(x: 92, y: 184)), Theme.solar, true),
+        ("grid_battery", curve(.init(x: 92, y: 280), .init(x: 110, y: 392), .init(x: 490, y: 392), .init(x: 508, y: 280)), Theme.grid, true),
+        ("battery_grid", curve(.init(x: 508, y: 280), .init(x: 490, y: 392), .init(x: 110, y: 392), .init(x: 92, y: 280)), Theme.green, false),
+    ]
 }
 
-struct Node: View {
-    let icon: String
-    let label: String
-    let value: String
-    var sub: String?
-    let color: Color
-    let active: Bool
+struct FlowDiagram: View {
+    let now: Now
 
     var body: some View {
-        VStack(spacing: 1) {
-            Image(systemName: icon).font(.system(size: 15)).foregroundStyle(color)
-            Text(label.uppercased()).font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.dim)
-            Text(value).font(.system(size: 12, weight: .bold)).monospacedDigit()
-            if let sub { Text(sub).font(.system(size: 9)).foregroundStyle(Theme.dim) }
+        VStack(spacing: 6) {
+            GeometryReader { g in
+                let k = min(g.size.width / FD.size.width, g.size.height / FD.size.height)
+                let dx = (g.size.width - FD.size.width * k) / 2, dy = (g.size.height - FD.size.height * k) / 2
+                let xf = CGAffineTransform(translationX: dx, y: dy).scaledBy(x: k, y: k).translatedBy(x: 0, y: FD.top)
+                let paths = now.flow.paths
+                ZStack {
+                    // tracks + active lines
+                    ForEach(FD.edges, id: \.key) { e in
+                        let kw = paths[e.key] ?? 0
+                        if e.track {
+                            e.path.applying(xf).stroke(Color.white.opacity(0.06), style: StrokeStyle(lineWidth: 3 * k, lineCap: .round))
+                        }
+                        if kw > 0.01 {
+                            e.path.applying(xf)
+                                .stroke(e.color.opacity(0.9), style: StrokeStyle(lineWidth: min(7, 2 + kw * 0.9) * k, lineCap: .round))
+                                .shadow(color: e.color.opacity(0.8), radius: 4 * k)
+                        }
+                    }
+                    // particles
+                    TimelineView(.animation) { tl in
+                        let t = tl.date.timeIntervalSinceReferenceDate
+                        Canvas { ctx, _ in
+                            for e in FD.edges {
+                                let kw = paths[e.key] ?? 0
+                                guard kw > 0.01 else { continue }
+                                // Calm, distance-based pace (design-space px/s), one
+                                // particle per ~90 px so short links don't bunch up.
+                                let len = FD.length(e.key)
+                                let speed = 18 + min(40, kw * 6)
+                                let dots = max(1, min(3, Int((len / 90).rounded())))
+                                let r = min(6, 3.5 + kw * 0.4) * k
+                                let p = e.path.applying(xf)
+                                for i in 0..<dots {
+                                    let f = (t * speed / len + Double(i) / Double(dots)).truncatingRemainder(dividingBy: 1)
+                                    guard let pt = p.trimmedPath(from: 0, to: max(0.001, f)).currentPoint else { continue }
+                                    let fade = min(1, min(f, 1 - f) * 6)
+                                    var c = ctx
+                                    c.opacity = fade
+                                    c.addFilter(.shadow(color: e.color, radius: 5 * k))
+                                    c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(e.color))
+                                }
+                            }
+                        }
+                    }
+                    node(FD.solar, k: k, xf: xf, value: Fmt.kw(now.solarKw), sub: now.solarKw > 0.01 ? "producing" : nil, active: now.solarKw > 0.01)
+                    node(FD.grid, k: k, xf: xf, value: now.grid.direction == "balanced" ? "0.0 kW" : Fmt.kw(now.grid.kw),
+                         sub: now.grid.direction == "balanced" ? nil : now.grid.direction, active: now.grid.direction != "balanced")
+                    node(FD.battery, k: k, xf: xf, value: Fmt.kw(now.battery?.kw),
+                         sub: now.battery.map { Fmt.pct($0.soc) + ($0.state == "idle" ? "" : " · \($0.state)") },
+                         active: (now.battery?.state ?? "idle") != "idle")
+                    homeNode(k: k, xf: xf)
+                }
+            }
+            Text(now.flow.headline).font(.footnote).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
         }
-        .frame(width: 80, height: 80)
-        .background(Circle().fill(Theme.bg))
-        .overlay(Circle().strokeBorder(active ? color : Theme.border, lineWidth: 2))
+    }
+
+    private func node(_ n: FD.Node, k: CGFloat, xf: CGAffineTransform, value: String, sub: String?, active: Bool) -> some View {
+        let c = CGPoint(x: n.x, y: n.y).applying(xf)
+        return ZStack {
+            if active {
+                Circle().fill(RadialGradient(colors: [n.color.opacity(0.25), .clear], center: .center,
+                                             startRadius: n.r * k * 0.8, endRadius: (n.r + 26) * k))
+                    .frame(width: (n.r + 26) * 2 * k, height: (n.r + 26) * 2 * k)
+            }
+            Circle().fill(Color(hex: 0x101823))
+                .overlay(Circle().strokeBorder(active ? n.color.opacity(0.7) : Color.white.opacity(0.1), lineWidth: 2 * k))
+                .frame(width: n.r * 2 * k, height: n.r * 2 * k)
+            VStack(spacing: 1 * k) {
+                Image(systemName: n.icon).font(.system(size: 18 * k)).foregroundStyle(n.color)
+                Text(n.label).font(.system(size: 9 * k, weight: .bold)).tracking(1.2 * k).foregroundStyle(Theme.dim)
+                Text(value).font(.system(size: 14 * k, weight: .heavy)).monospacedDigit()
+                if let sub { Text(sub).font(.system(size: 8.5 * k, weight: .semibold)).foregroundStyle(Theme.dim) }
+            }
+        }
+        .position(c)
+    }
+
+    private func homeNode(k: CGFloat, xf: CGAffineTransform) -> some View {
+        let n = FD.home
+        let c = CGPoint(x: n.x, y: n.y).applying(xf)
+        let pct = (now.flow.selfPoweredPct ?? 0) / 100
+        let ring = (n.r + 9) * 2 * k
+        return ZStack {
+            Circle().fill(RadialGradient(colors: [n.color.opacity(0.22), .clear], center: .center,
+                                         startRadius: n.r * k * 0.8, endRadius: (n.r + 30) * k))
+                .frame(width: (n.r + 30) * 2 * k, height: (n.r + 30) * 2 * k)
+            Circle().stroke(Color.white.opacity(0.07), lineWidth: 6 * k).frame(width: ring, height: ring)
+            Circle().trim(from: 0, to: pct).stroke(Theme.green, style: StrokeStyle(lineWidth: 6 * k, lineCap: .round))
+                .rotationEffect(.degrees(-90)).frame(width: ring, height: ring)
+                .animation(.easeInOut(duration: 0.8), value: pct)
+            Circle().fill(Color(hex: 0x101823))
+                .overlay(Circle().strokeBorder(n.color.opacity(0.5), lineWidth: 2 * k))
+                .frame(width: n.r * 2 * k, height: n.r * 2 * k)
+            VStack(spacing: 2 * k) {
+                Image(systemName: n.icon).font(.system(size: 22 * k)).foregroundStyle(n.color)
+                Text(n.label).font(.system(size: 9 * k, weight: .bold)).tracking(1.2 * k).foregroundStyle(Theme.dim)
+                Text(Fmt.kw(now.homeKw)).font(.system(size: 19 * k, weight: .heavy)).monospacedDigit()
+                if let sp = now.flow.selfPoweredPct {
+                    Text("\(Int(sp))% self-powered").font(.system(size: 8.5 * k, weight: .semibold)).foregroundStyle(Theme.dim)
+                }
+            }
+        }
+        .position(c)
     }
 }
 

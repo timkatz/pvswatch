@@ -1031,7 +1031,7 @@
 
     <div class="chart-card flow-card">
       <div class="flow-wrap" id="powerFlow">
-        <svg class="flow-diagram" id="flowSvg" viewBox="0 0 600 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Power flow"></svg>
+        <svg class="flow-diagram" id="flowSvg" viewBox="0 -32 600 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Power flow"></svg>
         <div class="flow-headline" id="flowHeadline">—</div>
       </div>
     </div>
@@ -2178,7 +2178,7 @@ function buildFlowSvg() {
   if (!svg || svg.dataset.built) return;
   svg.dataset.built = '1';
   let h = `<defs>
-    <filter id="fdGlow" filterUnits="userSpaceOnUse" x="0" y="0" width="600" height="420"><feGaussianBlur stdDeviation="2.4" result="b"/>
+    <filter id="fdGlow" filterUnits="userSpaceOnUse" x="0" y="-32" width="600" height="440"><feGaussianBlur stdDeviation="2.4" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
   for (const [k, n] of Object.entries(FD_NODES))
     h += `<radialGradient id="fdHalo_${k}"><stop offset="55%" stop-color="${n.color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${n.color}" stop-opacity="0"/></radialGradient>`;
@@ -2201,7 +2201,9 @@ function buildFlowSvg() {
   svg.innerHTML = h;
   for (const k of Object.keys(FD_EDGES)) {
     const el = document.getElementById('fl_' + k);
-    fdState[k] = { kw: 0, pathEl: el, len: el.getTotalLength(), t: Math.random() };
+    const len = el.getTotalLength();
+    // one particle per ~90 px, so short links don't bunch up
+    fdState[k] = { kw: 0, pathEl: el, len, dots: Math.max(1, Math.min(FD_DOTS, Math.round(len / 90))), t: Math.random() };
   }
   requestAnimationFrame(fdTick);
 }
@@ -2213,11 +2215,11 @@ function fdTick(now) {
   if (visible) {
     for (const [k, st] of Object.entries(fdState)) {
       if (st.kw <= 0.01) continue;
-      // 0.3 kW crawls, 5 kW races: one trip takes 2.6 s down to 0.7 s.
-      const trip = Math.max(0.7, 2.6 - st.kw * 0.4);
-      st.t = (st.t + dt / trip) % 1;
-      for (let i = 0; i < FD_DOTS; i++) {
-        const f = (st.t + i / FD_DOTS) % 1;
+      // Calm, distance-based pace: ~20 px/s at a trickle, ~55 px/s around 6 kW.
+      const speed = 18 + Math.min(40, st.kw * 6);
+      st.t = (st.t + dt * speed / st.len) % 1;
+      for (let i = 0; i < st.dots; i++) {
+        const f = (st.t + i / st.dots) % 1;
         const p = st.pathEl.getPointAtLength(f * st.len);
         const dot = document.getElementById(`fdot_${k}_${i}`);
         dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
@@ -2263,7 +2265,7 @@ function renderFlow() {
     line.setAttribute('stroke-width', on ? Math.min(7, 2 + kw * 0.9).toFixed(1) : 2);
     for (let i = 0; i < FD_DOTS; i++) {
       const dot = document.getElementById(`fdot_${k}_${i}`);
-      dot.classList.toggle('on', on);
+      dot.classList.toggle('on', on && i < st.dots);
       if (!on) dot.style.opacity = 0;
       dot.setAttribute('r', on ? Math.min(6, 3.5 + kw * 0.4).toFixed(1) : 4);
     }
