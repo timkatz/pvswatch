@@ -181,9 +181,11 @@ struct Finance: Decodable {
     struct Ytd: Decodable {
         let year: Int
         let saved: Double?
+        let paid: Double?
+        let noSolar: Double?
         let bills: Int
         let prev: Prev?
-        struct Prev: Decodable { let year: Int; let saved: Double? }
+        struct Prev: Decodable { let year: Int; let saved: Double?; let paid: Double?; let noSolar: Double? }
     }
     struct Lifetime: Decodable {
         let since: String?
@@ -199,6 +201,10 @@ struct Finance: Decodable {
         let saved: Double?
         let noSolar: Double?
         let inProgress: Bool?
+        let sce: Double?
+        let solarPayment: Double?
+        /// The same month (or year) one year earlier.
+        let yoyTotal: Double?
     }
 }
 

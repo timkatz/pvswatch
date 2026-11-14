@@ -49,6 +49,7 @@ final class Store {
     var outages: Outages?
     var tou: Tou?
     var finance: Finance?
+    var financeYears: Finance?
     var settings: SettingsDoc?
     var battery: BatteryDoc?
     var reserveBusy = false
@@ -123,6 +124,7 @@ final class Store {
         guard let api else { return }
         tou = try? await api.get("api/v1/tou")
         finance = try? await api.get("api/v1/finance?group=month&spread=1")
+        financeYears = try? await api.get("api/v1/finance?group=year&spread=1")
     }
 
     func loadSettings() async {

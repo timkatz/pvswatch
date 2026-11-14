@@ -109,15 +109,34 @@ struct MoneyView: View {
         Page {
             if let tou = store.tou, tou.enabled { TouCard(tou: tou) }
             if let f = store.finance {
-                SectionHead(title: "Net cost & savings")
+                if let y = f.headline?.ytd {
+                    SectionHead(title: "\(y.year) year to date", trailing: "\(y.bills) bills")
+                    YtdTiles(y: y)
+                }
+                SectionHead(title: "Year over year", trailing: "each bill vs the same month a year earlier")
+                Card { MonthlyYoY(rows: Array(f.rows.suffix(12))).frame(height: 220) }
+                if let years = store.financeYears?.rows, years.count > 1 {
+                    Card(title: "By year") { YearBars(rows: years).frame(height: 200) }
+                }
+                SectionHead(title: "Since solar")
                 if let h = f.headline { FinanceTiles(h: h) }
                 Card(title: "By bill") {
+                    HStack {
+                        Text("Bill").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Paid").frame(width: 70, alignment: .trailing)
+                        Text("vs last year").frame(width: 100, alignment: .trailing)
+                        Text("Solar").frame(width: 100, alignment: .trailing)
+                    }
+                    .font(.caption2.weight(.semibold)).foregroundStyle(Theme.dim)
                     ForEach(f.rows.suffix(12).reversed()) { r in
                         HStack {
-                            Text(monthLabel(r.key)).font(.footnote)
-                            if r.inProgress == true { Text("so far").font(.caption2).foregroundStyle(Theme.dim) }
-                            Spacer()
-                            Text(Fmt.money(r.total)).font(.footnote).monospacedDigit()
+                            HStack(spacing: 4) {
+                                Text(monthLabel(r.key)).font(.footnote)
+                                if r.inProgress == true { Text("so far").font(.caption2).foregroundStyle(Theme.dim) }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(Fmt.money(r.total)).font(.footnote).monospacedDigit().frame(width: 70, alignment: .trailing)
+                            Delta(now: r.total, before: r.yoyTotal).frame(width: 100, alignment: .trailing)
                             Text(r.saved.map { ($0 >= 0 ? "saved " : "lost ") + Fmt.money(abs($0)) } ?? "—")
                                 .font(.caption).monospacedDigit()
                                 .foregroundStyle((r.saved ?? 0) >= 0 ? Theme.green : Theme.red)
@@ -132,24 +151,106 @@ struct MoneyView: View {
         }
         .refreshable { await store.loadMoney() }
     }
+}
 
-    private func monthLabel(_ key: String) -> String {
-        let p = key.split(separator: "-").compactMap { Int($0) }
-        guard p.count == 2, let d = Calendar.current.date(from: DateComponents(year: p[0], month: p[1])) else { return key }
-        return d.formatted(.dateTime.month(.abbreviated).year())
+func monthLabel(_ key: String) -> String {
+    let p = key.split(separator: "-").compactMap { Int($0) }
+    guard p.count == 2, let d = Calendar.current.date(from: DateComponents(year: p[0], month: p[1])) else { return key }
+    return d.formatted(.dateTime.month(.abbreviated).year())
+}
+
+private func shortMonth(_ key: String) -> String {
+    let p = key.split(separator: "-").compactMap { Int($0) }
+    guard p.count == 2, let d = Calendar.current.date(from: DateComponents(year: p[0], month: p[1])) else { return key }
+    return d.formatted(.dateTime.month(.abbreviated))
+}
+
+// "+$198 (+28%)" in red when you paid more than a year ago, green when less.
+private struct Delta: View {
+    let now: Double?
+    let before: Double?
+    var body: some View {
+        if let now, let before, before > 0 {
+            let d = now - before
+            Text("\(d >= 0 ? "+" : "−")\(Fmt.money(abs(d))) (\(d >= 0 ? "+" : "−")\(Int((abs(d) / before * 100).rounded()))%)")
+                .font(.caption).monospacedDigit()
+                .foregroundStyle(d > 0 ? Theme.red : Theme.green)
+        } else {
+            Text("—").font(.caption).foregroundStyle(Theme.dim)
+        }
+    }
+}
+
+private struct YtdTiles: View {
+    let y: Finance.Ytd
+    var body: some View {
+        let prevYear = y.prev?.year ?? (y.year - 1)
+        TileGrid(wide: 3) {
+            StatTile(label: "Paid so far", value: Fmt.money(y.paid)) {
+                HStack(spacing: 4) {
+                    Text("vs \(Fmt.money(y.prev?.paid)) by now in \(String(prevYear))").font(.caption).foregroundStyle(Theme.dim)
+                    Delta(now: y.paid, before: y.prev?.paid)
+                }
+            }
+            StatTile(label: "Saved by solar", value: Fmt.money(y.saved),
+                     sub: "vs \(Fmt.money(y.prev?.saved)) by now in \(String(prevYear))",
+                     valueColor: (y.saved ?? 0) >= 0 ? Theme.green : Theme.red)
+            StatTile(label: "Without solar", value: Fmt.money(y.noSolar),
+                     sub: "estimated utility bill · \(Fmt.money(y.prev?.noSolar)) in \(String(prevYear))")
+        }
+    }
+}
+
+// The last 12 bills as bars, with the same month a year earlier as a dot.
+private struct MonthlyYoY: View {
+    let rows: [Finance.Row]
+    var body: some View {
+        Chart {
+            ForEach(rows) { r in
+                BarMark(x: .value("Month", shortMonth(r.key)), y: .value("$", r.total ?? 0))
+                    .foregroundStyle(by: .value("Series", "This year"))
+                    .cornerRadius(3)
+                if let y = r.yoyTotal {
+                    PointMark(x: .value("Month", shortMonth(r.key)), y: .value("$", y))
+                        .foregroundStyle(by: .value("Series", "Year before"))
+                        .symbolSize(60)
+                }
+            }
+        }
+        .chartForegroundStyleScale(["This year": Theme.accent, "Year before": Theme.dim])
+        .chartLegend(position: .top, alignment: .leading)
+        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d)) } } } }
+    }
+}
+
+// Each calendar year: what you paid vs the no-solar estimate.
+private struct YearBars: View {
+    let rows: [Finance.Row]
+    var body: some View {
+        Chart {
+            ForEach(rows) { r in
+                BarMark(x: .value("Year", r.key + (r.inProgress == true ? " (so far)" : "")), y: .value("$", r.total ?? 0))
+                    .foregroundStyle(by: .value("Series", "Paid"))
+                    .position(by: .value("Series", "Paid"))
+                if let n = r.noSolar {
+                    BarMark(x: .value("Year", r.key + (r.inProgress == true ? " (so far)" : "")), y: .value("$", n))
+                        .foregroundStyle(by: .value("Series", "Without solar"))
+                        .position(by: .value("Series", "Without solar"))
+                }
+            }
+        }
+        .chartForegroundStyleScale(["Paid": Theme.accent, "Without solar": Theme.dim.opacity(0.6)])
+        .chartLegend(position: .top, alignment: .leading)
+        .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d)) } } } }
     }
 }
 
 private struct FinanceTiles: View {
     let h: Finance.Headline
     var body: some View {
-        TileGrid(wide: 3) {
-            if let y = h.ytd {
-                MoneyTile(label: "\(y.year) so far", value: y.saved,
-                          sub: y.prev?.saved.map { "vs \(Fmt.money($0)) by now in \(y.prev!.year)" } ?? "\(y.bills) bills")
-            }
+        TileGrid(wide: 2) {
             if let l = h.lifetime {
-                MoneyTile(label: "Since \(l.since?.prefix(7) ?? "start")", value: l.saved,
+                MoneyTile(label: "Saved since \(l.since?.prefix(7) ?? "start")", value: l.saved,
                           sub: "paid \(Fmt.money(l.paid)) vs ~\(Fmt.money(l.noSolar)) without solar")
             }
             if let c = h.netCost12, let n = h.bills12, n > 0 {
