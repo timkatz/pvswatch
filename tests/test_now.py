@@ -66,6 +66,9 @@ class NowTest(unittest.TestCase):
         self.assertAlmostEqual(p["solar_battery"], 4.8)
         self.assertAlmostEqual(p["grid_battery"], 1.8)
         self.assertIn("Grid is charging the battery", f["headline"])
+        self.assertEqual(f["self_powered_pct"], 100)  # solar covers the whole 1.9 kW home
+        g = proxy.build_now(snapshot(0.5, 2, 1.5))["flow"]
+        self.assertEqual(g["self_powered_pct"], 25)
         proxy._last_battery.update(block=None, ts=None)
         self.assertEqual(proxy.build_now(snapshot())["flow"]["headline"], "System idle")
 

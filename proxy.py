@@ -3559,6 +3559,9 @@ def build_now(data, fetched_at=None):
                  "balanced": gap < 0.2, "battery_cover_kw": round(max(0.0, 2 * min(h1, h2) - 0.1), 3)}
 
     flow, headline = _flow_split(solar, home, bat_kw or 0, grid)
+    # Share of the house running on its own power right now (solar + battery).
+    self_powered = (round(min(1.0, (flow["solar_home"] + flow["battery_home"]) / home) * 100)
+                    if home > 0.05 else None)
     pf_p, pf_c = _fnum(mp.get("tot_pf_rto")), _fnum(mc.get("tot_pf_rto"))
     return {
         "ts": now,
@@ -3569,7 +3572,7 @@ def build_now(data, fetched_at=None):
         "grid": {"kw": round(grid, 3), "direction": direction, "source": grid_source},
         "battery": battery,
         "house_sides": sides,
-        "flow": {"paths": flow, "headline": headline},
+        "flow": {"paths": flow, "headline": headline, "self_powered_pct": self_powered},
         "lifetime_kwh": _fnum(mp.get("net_ltea_3phsum_kwh")),
         "electrical": {
             "system_v": _fnum(mc.get("v12_v")), "l1_v": _fnum(mc.get("v1n_v")), "l2_v": _fnum(mc.get("v2n_v")),

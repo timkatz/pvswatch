@@ -734,41 +734,25 @@
       height: auto;
       display: block;
     }
-    .flow-line {
-      fill: none;
-      stroke: var(--border);
-      stroke-width: 1.5;
-      opacity: 0.45;
-      transition: stroke 0.4s, opacity 0.4s, stroke-width 0.4s;
-    }
-    .flow-line.active { opacity: 1; stroke-width: 2; }
-    .flow-line.solar.active     { stroke: var(--accent); }
-    .flow-line.bat-out.active   { stroke: var(--accent); }
-    .flow-line.bat-in.active    { stroke: var(--green); }
-    .flow-line.grid-in.active   { stroke: var(--red); }
-    .flow-line.grid-out.active  { stroke: var(--blue); }
-    .flow-dot { filter: drop-shadow(0 0 4px currentColor); }
-    .flow-dot.solar    { fill: var(--accent); color: var(--accent); }
-    .flow-dot.bat-out  { fill: var(--accent); color: var(--accent); }
-    .flow-dot.bat-in   { fill: var(--green);  color: var(--green); }
-    .flow-dot.grid-in  { fill: var(--red);    color: var(--red); }
-    .flow-dot.grid-out { fill: var(--blue);   color: var(--blue); }
-    .node-circle {
-      fill: var(--bg);
-      stroke: var(--border);
-      stroke-width: 2;
-      transition: stroke 0.4s, fill 0.4s;
-    }
-    .node-circle.solar.active        { stroke: var(--accent); fill: rgba(245,158,11,0.06); }
-    .node-circle.battery.charging    { stroke: var(--green);  fill: rgba(34,197,94,0.06); }
-    .node-circle.battery.discharging { stroke: var(--accent); fill: rgba(245,158,11,0.06); }
-    .node-circle.grid.importing      { stroke: var(--red);    fill: rgba(239,68,68,0.06); }
-    .node-circle.grid.exporting      { stroke: var(--blue);   fill: rgba(59,130,246,0.06); }
-    .node-circle.home                { stroke: rgba(245,158,11,0.55); fill: rgba(245,158,11,0.04); }
+    /* Power-flow diagram: home in the middle; solid tracks; glowing
+       particles whose speed and line weight follow the kW. Built by buildFlowSvg(). */
+    .fd-track { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 3; stroke-linecap: round; }
+    .fd-line  { fill: none; stroke-linecap: round; opacity: 0; transition: opacity 0.4s, stroke-width 0.4s; filter: url(#fdGlow); }
+    .fd-line.on { opacity: 0.9; }
+    .fd-dot   { opacity: 0; filter: url(#fdGlow); }
+    .fd-dot.on { opacity: 1; }
+    .fd-node  { fill: #101823; stroke: rgba(255,255,255,0.10); stroke-width: 2; transition: stroke 0.4s; }
+    .fd-halo  { opacity: 0; transition: opacity 0.6s; }
+    .fd-halo.on { opacity: 1; animation: fdPulse 2.4s ease-in-out infinite; }
+    @keyframes fdPulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
+    .fd-ring-bg { fill: none; stroke: rgba(255,255,255,0.07); stroke-width: 6; }
+    .fd-ring   { fill: none; stroke: var(--green); stroke-width: 6; stroke-linecap: round;
+                 transform: rotate(-90deg); transform-origin: 300px 232px; transition: stroke-dasharray 0.8s; }
     .node-icon  { font-size: 22px; dominant-baseline: middle; }
     .node-label { font-size: 9px;  fill: var(--text-dim); letter-spacing: 0.12em; font-weight: 700; }
     .node-value { font-size: 14px; fill: var(--text); font-weight: 800; letter-spacing: -0.01em; }
     .node-sub   { font-size: 9px;  fill: var(--text-dim); font-weight: 600; letter-spacing: 0.06em; }
+    .node-big   { font-size: 19px; }
     .flow-headline {
       font-size: 0.85rem;
       color: var(--text);
@@ -1047,53 +1031,7 @@
 
     <div class="chart-card flow-card">
       <div class="flow-wrap" id="powerFlow">
-        <svg class="flow-diagram" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet" aria-label="Power flow diagram">
-          <!-- Connection paths (drawn first so dots and nodes layer on top) -->
-          <path id="p_solar_home"    class="flow-line solar"    d="M 348,70  Q 510,70  510,152"/>
-          <path id="p_solar_battery" class="flow-line bat-in"   d="M 300,118 L 300,282"/>
-          <path id="p_solar_grid"    class="flow-line grid-out" d="M 252,70  Q 90,70   90,152"/>
-          <path id="p_battery_home"  class="flow-line bat-out"  d="M 348,330 Q 510,330 510,248"/>
-          <path id="p_grid_home"     class="flow-line grid-in"  d="M 138,200 L 462,200"/>
-          <path id="p_grid_battery"  class="flow-line bat-in"   d="M 90,248  Q 90,330  252,330"/>
-          <!-- Reverse-direction paths (invisible — only used by motion when needed) -->
-          <path id="p_battery_grid"  fill="none" stroke="none" d="M 252,330 Q 90,330 90,248"/>
-
-          <!-- Animated dots -->
-          <circle class="flow-dot solar"    id="dot_solar_home"    r="5" style="display:none"><animateMotion id="anim_solar_home"    dur="2.5s" repeatCount="indefinite"><mpath href="#p_solar_home"/></animateMotion></circle>
-          <circle class="flow-dot bat-in"   id="dot_solar_battery" r="5" style="display:none"><animateMotion id="anim_solar_battery" dur="2.5s" repeatCount="indefinite"><mpath href="#p_solar_battery"/></animateMotion></circle>
-          <circle class="flow-dot grid-out" id="dot_solar_grid"    r="5" style="display:none"><animateMotion id="anim_solar_grid"    dur="2.5s" repeatCount="indefinite"><mpath href="#p_solar_grid"/></animateMotion></circle>
-          <circle class="flow-dot bat-out"  id="dot_battery_home"  r="5" style="display:none"><animateMotion id="anim_battery_home"  dur="2.5s" repeatCount="indefinite"><mpath href="#p_battery_home"/></animateMotion></circle>
-          <circle class="flow-dot grid-in"  id="dot_grid_home"     r="5" style="display:none"><animateMotion id="anim_grid_home"     dur="2.5s" repeatCount="indefinite"><mpath href="#p_grid_home"/></animateMotion></circle>
-          <circle class="flow-dot bat-in"   id="dot_grid_battery"  r="5" style="display:none"><animateMotion id="anim_grid_battery"  dur="2.5s" repeatCount="indefinite"><mpath href="#p_grid_battery"/></animateMotion></circle>
-          <circle class="flow-dot bat-out"  id="dot_battery_grid"  r="5" style="display:none"><animateMotion id="anim_battery_grid"  dur="2.5s" repeatCount="indefinite"><mpath href="#p_battery_grid"/></animateMotion></circle>
-
-          <!-- Nodes -->
-          <g>
-            <circle id="node_solar_c" class="node-circle solar" cx="300" cy="70" r="48"/>
-            <text x="300" y="55" text-anchor="middle" class="node-icon">☀️</text>
-            <text x="300" y="78" text-anchor="middle" class="node-label">SOLAR</text>
-            <text x="300" y="95" text-anchor="middle" class="node-value" id="node_solar_v">0.0 kW</text>
-          </g>
-          <g>
-            <circle id="node_grid_c" class="node-circle grid" cx="90" cy="200" r="48"/>
-            <text x="90" y="185" text-anchor="middle" class="node-icon">⚡</text>
-            <text x="90" y="208" text-anchor="middle" class="node-label">GRID</text>
-            <text x="90" y="225" text-anchor="middle" class="node-value" id="node_grid_v">0.0 kW</text>
-          </g>
-          <g>
-            <circle class="node-circle home" cx="510" cy="200" r="48"/>
-            <text x="510" y="185" text-anchor="middle" class="node-icon">🏠</text>
-            <text x="510" y="208" text-anchor="middle" class="node-label">HOME</text>
-            <text x="510" y="225" text-anchor="middle" class="node-value" id="node_home_v">0.0 kW</text>
-          </g>
-          <g>
-            <circle id="node_battery_c" class="node-circle battery" cx="300" cy="330" r="48"/>
-            <text x="300" y="315" text-anchor="middle" class="node-icon">🔋</text>
-            <text x="300" y="338" text-anchor="middle" class="node-label">BATTERY</text>
-            <text x="300" y="355" text-anchor="middle" class="node-value" id="node_battery_v">0.0 kW</text>
-            <text x="300" y="370" text-anchor="middle" class="node-sub" id="node_battery_soc">—</text>
-          </g>
-        </svg>
+        <svg class="flow-diagram" id="flowSvg" viewBox="0 0 600 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Power flow"></svg>
         <div class="flow-headline" id="flowHeadline">—</div>
       </div>
     </div>
@@ -2214,62 +2152,122 @@ document.getElementById('chartTabs').addEventListener('click', (e) => {
 
 // Power-flow visualization (LIVE mode). Shows where energy is currently
 // flowing: solar/battery/grid → home.
-function renderFlow() {
-  if (!liveSnapshot) return;
-  const s = liveSnapshot;
-  const prodKw = Math.max(0, s.prodKw || 0);
-  const consKw = Math.max(0, s.consKw || 0);
-  const batKw = s.batteryKw || 0;
-  const gridKw = s.gridKw || 0;
-  const fmtKw = (kw) => `${Math.abs(kw).toFixed(1)} kW`;
-
-  // Update node values
-  document.getElementById('node_solar_v').textContent = fmtKw(prodKw);
-  document.getElementById('node_home_v').textContent = fmtKw(consKw);
-  document.getElementById('node_battery_v').textContent = fmtKw(batKw);
-  document.getElementById('node_grid_v').textContent = s.gridDirection === 'balanced' ? '0.0 kW' : fmtKw(gridKw);
-  if (s.batterySoc != null) {
-    document.getElementById('node_battery_soc').textContent = Math.round(s.batterySoc * 100) + '%';
+// ── Power-flow diagram ─────────────────────────────────────────────────
+// Home sits in the middle; solar above, grid left, battery right. Each edge
+// is a faint track plus a glowing line and particles shown when power moves
+// along it. Who feeds whom (flow.paths) comes from /api/v1/now.
+const FD_NODES = {
+  solar:   { x: 300, y: 62,  r: 46, icon: '☀️', label: 'SOLAR',   color: '#f59e0b' },
+  grid:    { x: 92,  y: 232, r: 46, icon: '⚡', label: 'GRID',    color: '#ef4444' },
+  battery: { x: 508, y: 232, r: 46, icon: '🔋', label: 'BATTERY', color: '#22c55e' },
+  home:    { x: 300, y: 232, r: 60, icon: '🏠', label: 'HOME',    color: '#3b82f6' },
+};
+const FD_EDGES = {
+  solar_home:    { d: 'M300,110 L300,170', color: '#f59e0b' },
+  grid_home:     { d: 'M140,232 L238,232', color: '#ef4444' },
+  battery_home:  { d: 'M460,232 L362,232', color: '#22c55e' },
+  solar_battery: { d: 'M344,80 C430,88 500,128 508,184', color: '#f59e0b' },
+  solar_grid:    { d: 'M256,80 C170,88 100,128 92,184', color: '#f59e0b' },
+  grid_battery:  { d: 'M92,280 C110,392 490,392 508,280', color: '#ef4444' },
+  battery_grid:  { d: 'M508,280 C490,392 110,392 92,280', color: '#22c55e' },
+};
+const FD_DOTS = 3;
+const fdState = {};   // edge -> { kw, pathEl, len, speed }
+function buildFlowSvg() {
+  const svg = document.getElementById('flowSvg');
+  if (!svg || svg.dataset.built) return;
+  svg.dataset.built = '1';
+  let h = `<defs>
+    <filter id="fdGlow" filterUnits="userSpaceOnUse" x="0" y="0" width="600" height="420"><feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  for (const [k, n] of Object.entries(FD_NODES))
+    h += `<radialGradient id="fdHalo_${k}"><stop offset="55%" stop-color="${n.color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${n.color}" stop-opacity="0"/></radialGradient>`;
+  h += `</defs>`;
+  for (const [k, e] of Object.entries(FD_EDGES)) {
+    if (k !== 'battery_grid') h += `<path class="fd-track" d="${e.d}"/>`;
+    h += `<path class="fd-line" id="fl_${k}" d="${e.d}" stroke="${e.color}"/>`;
   }
-
-  // Node circle states
-  const setCls = (id, cls) => { const el = document.getElementById(id); if (el) el.setAttribute('class', cls); };
-  setCls('node_solar_c',   'node-circle solar' + (prodKw > 0.01 ? ' active' : ''));
-  setCls('node_battery_c', 'node-circle battery' + (batKw > 0.01 ? ' discharging' : (batKw < -0.01 ? ' charging' : '')));
-  setCls('node_grid_c',    'node-circle grid' + (s.gridDirection === 'balanced' ? '' : ' ' + s.gridDirection));
-
-  // Who feeds whom comes from /api/v1/now flow.paths.
-  const fp = (s.flow && s.flow.paths) || {};
-  const solarToHome = fp.solar_home || 0, solarToBattery = fp.solar_battery || 0, solarToGrid = fp.solar_grid || 0;
-  const batteryToHome = fp.battery_home || 0, batteryToGrid = fp.battery_grid || 0;
-  const gridToHome = fp.grid_home || 0, gridToBattery = fp.grid_battery || 0;
-
-  // Toggle each path + dot. Speed scales with power: 5 kW → 1.2s, 0.1 kW → 4s.
-  const paceFor = (kw) => Math.max(1.0, Math.min(4.0, 4.0 - kw * 0.6)).toFixed(2) + 's';
-  const setFlow = (pathId, dotId, animId, kw) => {
-    const active = kw > 0.01;
-    const path = document.getElementById(pathId);
-    const dot  = document.getElementById(dotId);
-    if (path) path.classList.toggle('active', active);
-    if (dot)  dot.style.display = active ? '' : 'none';
-    if (active && animId) {
-      const anim = document.getElementById(animId);
-      const dur = paceFor(kw);
-      if (anim && anim.getAttribute('dur') !== dur) {
-        anim.setAttribute('dur', dur);
-        // animateMotion needs a restart to pick up new dur
-        try { anim.beginElement(); } catch (_) {}
+  for (const [k, e] of Object.entries(FD_EDGES))
+    for (let i = 0; i < FD_DOTS; i++) h += `<circle class="fd-dot" id="fdot_${k}_${i}" r="4.5" fill="${e.color}"/>`;
+  for (const [k, n] of Object.entries(FD_NODES)) {
+    h += `<circle class="fd-halo" id="halo_${k}" cx="${n.x}" cy="${n.y}" r="${n.r + 26}" fill="url(#fdHalo_${k})"/>`;
+    if (k === 'home') h += `<circle class="fd-ring-bg" cx="${n.x}" cy="${n.y}" r="${n.r + 9}"/><circle class="fd-ring" id="fdRing" cx="${n.x}" cy="${n.y}" r="${n.r + 9}" stroke-dasharray="0 999"/>`;
+    h += `<circle class="fd-node" id="node_${k}_c" cx="${n.x}" cy="${n.y}" r="${n.r}"/>
+      <text x="${n.x}" y="${n.y - (k === 'home' ? 24 : 18)}" text-anchor="middle" class="node-icon">${n.icon}</text>
+      <text x="${n.x}" y="${n.y + (k === 'home' ? 2 : 4)}" text-anchor="middle" class="node-label">${n.label}</text>
+      <text x="${n.x}" y="${n.y + (k === 'home' ? 24 : 21)}" text-anchor="middle" class="node-value${k === 'home' ? ' node-big' : ''}" id="node_${k}_v">—</text>
+      <text x="${n.x}" y="${n.y + (k === 'home' ? 40 : 34)}" text-anchor="middle" class="node-sub" id="node_${k}_sub"></text>`;
+  }
+  svg.innerHTML = h;
+  for (const k of Object.keys(FD_EDGES)) {
+    const el = document.getElementById('fl_' + k);
+    fdState[k] = { kw: 0, pathEl: el, len: el.getTotalLength(), t: Math.random() };
+  }
+  requestAnimationFrame(fdTick);
+}
+let fdLast = 0;
+function fdTick(now) {
+  const dt = fdLast ? Math.min(0.1, (now - fdLast) / 1000) : 0;
+  fdLast = now;
+  const visible = !document.hidden && document.getElementById('powerFlow')?.offsetParent;
+  if (visible) {
+    for (const [k, st] of Object.entries(fdState)) {
+      if (st.kw <= 0.01) continue;
+      // 0.3 kW crawls, 5 kW races: one trip takes 2.6 s down to 0.7 s.
+      const trip = Math.max(0.7, 2.6 - st.kw * 0.4);
+      st.t = (st.t + dt / trip) % 1;
+      for (let i = 0; i < FD_DOTS; i++) {
+        const f = (st.t + i / FD_DOTS) % 1;
+        const p = st.pathEl.getPointAtLength(f * st.len);
+        const dot = document.getElementById(`fdot_${k}_${i}`);
+        dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+        // fade in/out at the ends so particles don't pop
+        dot.style.opacity = Math.min(1, Math.min(f, 1 - f) * 6);
       }
     }
-  };
-  setFlow('p_solar_home',    'dot_solar_home',    'anim_solar_home',    solarToHome);
-  setFlow('p_solar_battery', 'dot_solar_battery', 'anim_solar_battery', solarToBattery);
-  setFlow('p_solar_grid',    'dot_solar_grid',    'anim_solar_grid',    solarToGrid);
-  setFlow('p_battery_home',  'dot_battery_home',  'anim_battery_home',  batteryToHome);
-  setFlow('p_grid_home',     'dot_grid_home',     'anim_grid_home',     gridToHome);
-  setFlow('p_grid_battery',  'dot_grid_battery',  'anim_grid_battery',  gridToBattery);
-  setFlow('p_battery_grid',  'dot_battery_grid',  'anim_battery_grid',  batteryToGrid);
-
+  }
+  requestAnimationFrame(fdTick);
+}
+function renderFlow() {
+  if (!liveSnapshot) return;
+  buildFlowSvg();
+  const s = liveSnapshot;
+  const fmtKw = (kw) => `${Math.abs(kw || 0).toFixed(1)} kW`;
+  const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  set('node_solar_v', fmtKw(s.prodKw));
+  set('node_home_v', fmtKw(s.consKw));
+  set('node_battery_v', fmtKw(s.batteryKw));
+  set('node_grid_v', s.gridDirection === 'balanced' ? '0.0 kW' : fmtKw(s.gridKw));
+  set('node_battery_sub', s.batterySoc == null ? '' : Math.round(s.batterySoc * 100) + '%' + (s.batteryState && s.batteryState !== 'idle' ? ' · ' + s.batteryState : ''));
+  set('node_grid_sub', s.gridDirection === 'balanced' ? '' : s.gridDirection);
+  set('node_solar_sub', (s.prodKw || 0) > 0.01 ? 'producing' : '');
+  const sp = s.flow && s.flow.self_powered_pct;
+  set('node_home_sub', sp == null ? '' : sp + '% self-powered');
+  const ring = document.getElementById('fdRing');
+  if (ring) {
+    const c = 2 * Math.PI * (FD_NODES.home.r + 9);
+    ring.setAttribute('stroke-dasharray', `${c * (sp || 0) / 100} ${c}`);
+  }
+  const halo = (k, on) => document.getElementById('halo_' + k)?.classList.toggle('on', !!on);
+  halo('solar', (s.prodKw || 0) > 0.01);
+  halo('grid', s.gridDirection !== 'balanced');
+  halo('battery', s.batteryState && s.batteryState !== 'idle');
+  halo('home', true);
+  const paths = (s.flow && s.flow.paths) || {};
+  for (const [k, st] of Object.entries(fdState)) {
+    const kw = paths[k] || 0;
+    st.kw = kw;
+    const on = kw > 0.01;
+    const line = document.getElementById('fl_' + k);
+    line.classList.toggle('on', on);
+    line.setAttribute('stroke-width', on ? Math.min(7, 2 + kw * 0.9).toFixed(1) : 2);
+    for (let i = 0; i < FD_DOTS; i++) {
+      const dot = document.getElementById(`fdot_${k}_${i}`);
+      dot.classList.toggle('on', on);
+      if (!on) dot.style.opacity = 0;
+      dot.setAttribute('r', on ? Math.min(6, 3.5 + kw * 0.4).toFixed(1) : 4);
+    }
+  }
   document.getElementById('flowHeadline').textContent = (s.flow && s.flow.headline) || 'System idle';
 }
 

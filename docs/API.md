@@ -64,7 +64,8 @@ Battery modes, as the SunStrong app names them: `SELF_CONSUMPTION` is Self-Suppl
       "battery_home": 0, "battery_grid": 0,
       "grid_home": 0.491, "grid_battery": 1.345
     },
-    "headline": "Solar is powering your home · Grid is supplying your home · Grid is charging the battery"
+    "headline": "Solar is powering your home · Grid is supplying your home · Grid is charging the battery",
+    "self_powered_pct": 74   // share of home load from solar + battery right now; null when the house is ~idle
   },
   "lifetime_kwh": 49204.0,
   "electrical": { "system_v": 236.4, "l1_v": 118.7, "l2_v": 117.6, "freq_hz": 60.0, "pf_solar": 0.994, "pf_home": 0.835 },
