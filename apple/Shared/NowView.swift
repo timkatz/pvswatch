@@ -11,6 +11,7 @@ struct NowView: View {
                 StatusStrip(now: n)
                 PowerTiles(now: n)
                 Card { FlowDiagram(now: n).frame(height: 300) }
+                if let t = store.today { TodayTiles(t: t) }
                 if !compact { BatterySection(now: n) }
             } else {
                 EmptyState()
@@ -178,8 +179,8 @@ struct BatterySection: View {
 
     var body: some View {
         let b = now.battery
-        SectionHead(title: "SunVault Battery", trailing: b.map { ($0.stale ? "last reading " : "updated ") + Fmt.time($0.fetchedAt) })
-        TileGrid {
+        SectionHead(title: "SunVault", trailing: b.map { ($0.stale ? "last reading " : "updated ") + Fmt.time($0.fetchedAt) })
+        TileGrid(wide: 3) {
             StatTile(label: "State of charge", value: Fmt.pct(b?.soc)) {
                 ProgressView(value: min(1, max(0, b?.soc ?? 0)))
                     .tint((b?.soc ?? 1) < 0.2 ? Theme.red : (b?.soc ?? 1) < 0.5 ? Theme.accent : Theme.green)
@@ -188,10 +189,6 @@ struct BatterySection: View {
             StatTile(label: b?.state == "charging" ? "↓ Charging" : b?.state == "discharging" ? "↑ Discharging" : "· Idle",
                      value: Fmt.kw(b?.kw), sub: chargeText(b))
             StatTile(label: "Backup time", value: Fmt.backup(b?.backupMin), sub: "at current load")
-            if let s = now.houseSides {
-                StatTile(label: "House sides", value: String(format: "%.1f · %.1f kW", s.l1Kw, s.l2Kw),
-                         sub: s.balanced ? "balanced" : String(format: "uneven by %.1f kW", s.gapKw))
-            }
         }
         if showPicker { BatteryModePicker() }
     }
@@ -242,6 +239,24 @@ struct BatteryModePicker: View {
             if let msg = store.modeMessage {
                 Text(msg).font(.caption).foregroundStyle(msg.hasPrefix("Not") ? Theme.red : Theme.dim)
             }
+        }
+    }
+}
+
+
+// Since midnight: what the sun made, what the house used, and what it saved.
+struct TodayTiles: View {
+    let t: History.Totals
+    var body: some View {
+        SectionHead(title: "Today")
+        TileGrid {
+            StatTile(icon: "sun.max.fill", label: "Solar made", value: Fmt.kwh(t.solarKwh), sub: nil, color: Theme.solar)
+            StatTile(icon: "house.fill", label: "Home used", value: Fmt.kwh(t.homeKwh), sub: nil, color: Theme.home)
+            StatTile(icon: "leaf.fill", label: "Independence", value: t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—",
+                     sub: "solar made ÷ home used", color: Theme.green)
+            StatTile(icon: "dollarsign.circle", label: "Saved", value: Fmt.money(t.savingsDollars, cents: true),
+                     sub: (t.gridNetKwh ?? 0) >= 0 ? "\(Fmt.kwh(t.gridImportKwh)) from the grid" : "\(Fmt.kwh(t.gridExportKwh)) sent to the grid",
+                     color: Theme.green, valueColor: Theme.green)
         }
     }
 }

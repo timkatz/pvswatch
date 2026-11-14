@@ -2,8 +2,17 @@ import Foundation
 import Observation
 
 enum AppSection: String, CaseIterable, Identifiable, Hashable {
-    case now, battery, history, money, outages, panels, system, settings
+    case now, battery, panels, history, money, outages, system, settings
     var id: String { rawValue }
+    /// Sidebar groups: what's happening, how it's trending, setup.
+    var group: String {
+        switch self {
+        case .now, .battery, .panels: "Live"
+        case .history, .money, .outages: "Trends"
+        case .system, .settings: "Setup"
+        }
+    }
+    static let groups = ["Live", "Trends", "Setup"]
     var title: String {
         switch self {
         case .now: "Now"
@@ -45,6 +54,8 @@ final class Store {
     var now: Now?
     var sunvault: SunVault?
     var history: History?
+    /// Since local midnight, for the Now screen's "Today" row.
+    var today: History.Totals?
     var historyRange = "24h" { didSet { Task { await loadHistory() } } }
     var outages: Outages?
     var tou: Tou?
@@ -105,9 +116,17 @@ final class Store {
     func refreshAll() async {
         await refreshLive()
         guard api != nil, error == nil else { return }
+        await loadToday()
         await loadHistory()
         await loadOutages()
         await loadMoney()
+    }
+
+    func loadToday() async {
+        guard let api else { return }
+        let start = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        let h: History? = try? await api.get("api/v1/history?start=\(Int(start))&end=\(Int(Date().timeIntervalSince1970))")
+        today = h?.periodTotals
     }
 
     func loadHistory() async {

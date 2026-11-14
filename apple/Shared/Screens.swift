@@ -142,7 +142,6 @@ struct MoneyView: View {
 
     var body: some View {
         Page {
-            if let tou = store.tou, tou.enabled { TouCard(tou: tou) }
             if let f = store.finance {
                 if let y = f.headline?.ytd {
                     SectionHead(title: "\(y.year) year to date", trailing: "\(y.bills) bills")
@@ -182,6 +181,10 @@ struct MoneyView: View {
                 }
             } else if store.tou == nil {
                 EmptyState()
+            }
+            if let tou = store.tou, tou.enabled {
+                SectionHead(title: "Rates")
+                TouCard(tou: tou)
             }
         }
         .refreshable { await store.loadMoney() }

@@ -11,7 +11,7 @@ struct BatteryView: View {
         Page {
             if let d = store.battery {
                 Card { SunVaultIllustration(doc: d).frame(height: 230).frame(maxWidth: 560).frame(maxWidth: .infinity) }
-                Summary(doc: d)
+                Summary(doc: d, sides: store.now?.houseSides)
                 ModeCards(doc: d)
                 ReserveCard(doc: d)
                 if !d.day.isEmpty { DayCharts(doc: d) }
@@ -138,14 +138,19 @@ private struct FlowArrows: View {
 
 private struct Summary: View {
     let doc: BatteryDoc
+    let sides: Now.HouseSides?
     var body: some View {
         let b = doc.battery
-        TileGrid(wide: 3) {
+        TileGrid(wide: sides == nil ? 3 : 4) {
             StatTile(label: "Charge", value: Fmt.pct(b?.soc),
                      sub: b.map { $0.stale ? "last reading \(Fmt.time($0.fetchedAt))" : "updated \(Fmt.time($0.fetchedAt))" })
             StatTile(label: b?.state == "charging" ? "↓ Charging" : b?.state == "discharging" ? "↑ Discharging" : "· Idle",
                      value: Fmt.kw(b?.kw), sub: source(b))
             StatTile(label: "Backup time", value: Fmt.backup(b?.backupMin), sub: "at current load")
+            if let s = sides {
+                StatTile(label: "House sides", value: String(format: "%.1f · %.1f kW", s.l1Kw, s.l2Kw),
+                         sub: s.balanced ? "balanced" : String(format: "uneven by %.1f kW · battery covers ~%.1f kW", s.gapKw, s.batteryCoverKw))
+            }
         }
     }
 

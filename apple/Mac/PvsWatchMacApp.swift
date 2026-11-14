@@ -34,8 +34,14 @@ struct MacRoot: View {
 
     var body: some View {
         NavigationSplitView {
-            List(AppSection.allCases, selection: Binding(get: { section }, set: { if let s = $0 { section = s } })) { s in
-                Label(s.title, systemImage: s.icon).tag(s)
+            List(selection: Binding(get: { section }, set: { if let s = $0 { section = s } })) {
+                ForEach(AppSection.groups, id: \.self) { g in
+                    Section(g) {
+                        ForEach(AppSection.allCases.filter { $0.group == g }) { s in
+                            Label(s.title, systemImage: s.icon).tag(s)
+                        }
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 190)
         } detail: {

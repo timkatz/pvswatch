@@ -93,10 +93,15 @@ struct RootView: View {
 struct Tabs: View {
     @Binding var selection: AppSection
     var body: some View {
+        // Grouped in the open-flat sidebar; a flat tab bar when folded.
         TabView(selection: $selection) {
-            ForEach(AppSection.allCases) { s in
-                Tab(s.title, systemImage: s.icon, value: s) {
-                    NavigationStack { screen(s).navigationTitle(s.title) }
+            ForEach(AppSection.groups, id: \.self) { g in
+                TabSection(g) {
+                    ForEach(AppSection.allCases.filter { $0.group == g }) { s in
+                        Tab(s.title, systemImage: s.icon, value: s) {
+                            NavigationStack { screen(s).navigationTitle(s.title) }
+                        }
+                    }
                 }
             }
         }
