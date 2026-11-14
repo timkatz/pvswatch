@@ -484,7 +484,13 @@
     }
     .battery-mode .sub { font-size: 0.7rem; color: var(--text-dim); }
     .battery-mode .sub.err { color: var(--red); }
-    #batModes .chart-mode[disabled] { opacity: 0.5; cursor: wait; }
+    #setBatModes .chart-mode[disabled] { opacity: 0.5; cursor: wait; }
+    .mode-chip {
+      align-self: flex-start; margin-top: 0.15rem; font-size: 0.7rem; font-weight: 600;
+      color: var(--accent); background: var(--accent-glow); border-radius: 9999px;
+      padding: 0.15rem 0.55rem; text-decoration: none;
+    }
+    .mode-chip:empty { display: none; }
     .soc-bar {
       width: 100%;
       height: 8px;
@@ -1072,6 +1078,7 @@
         <span class="value" id="bat_soc">—</span>
         <div class="soc-bar"><div class="soc-fill" id="bat_socFill" style="width:0%"></div></div>
         <span class="sub" id="bat_socSub">&nbsp;</span>
+        <a class="mode-chip" id="bat_mode" href="#settings" title="Change in Settings"></a>
       </div>
       <div class="battery-card">
         <span class="label" id="bat_flowLabel">Battery Flow</span>
@@ -1088,15 +1095,6 @@
         <span class="value" id="bat_legs">—</span>
         <span class="sub" id="bat_legsSub">&nbsp;</span>
       </div>
-    </div>
-    <div class="battery-mode" id="batModeRow">
-      <span class="label">Mode</span>
-      <div class="chart-modes" id="batModes">
-        <button class="pill-btn chart-mode" data-mode="SELF_CONSUMPTION">Self-Supply</button>
-        <button class="pill-btn chart-mode" data-mode="ENERGY_ARBITRAGE">Cost Savings</button>
-        <button class="pill-btn chart-mode" data-mode="BACKUP_ONLY">Reserve</button>
-      </div>
-      <span class="sub" id="batModeMsg"></span>
     </div>
     <div class="units-grid" id="batteryUnits"></div>
 
@@ -1706,13 +1704,17 @@ let batModeBusy = false;
 function renderBatteryMode() {
   if (batModeBusy) return;
   const mode = lastSunvault ? lastSunvault.battery_mode : null;
-  document.querySelectorAll('#batModes .chart-mode, #setBatModes .chart-mode').forEach(b => {
+  document.querySelectorAll('#setBatModes .chart-mode').forEach(b => {
     b.classList.toggle('active', b.dataset.mode === mode);
   });
+  // The Now page shows the mode (and reserve); it's changed in Settings.
+  const MODE_LABEL = { SELF_CONSUMPTION: 'Self-Supply', ENERGY_ARBITRAGE: 'Cost Savings', BACKUP_ONLY: 'Reserve' };
+  const chip = document.getElementById('bat_mode');
+  if (chip) chip.textContent = MODE_LABEL[mode] ? MODE_LABEL[mode] + ' mode' : '';
 }
 async function changeBatteryMode(btn, msg) {
   if (!btn || batModeBusy || btn.classList.contains('active')) return;
-  const btns = document.querySelectorAll('#batModes .chart-mode, #setBatModes .chart-mode');
+  const btns = document.querySelectorAll('#setBatModes .chart-mode');
   batModeBusy = true;
   btns.forEach(b => b.disabled = true);
   msg.className = msg.className.replace(/\s*err\b/, '');
@@ -1735,8 +1737,6 @@ async function changeBatteryMode(btn, msg) {
     renderBatteryMode();
   }
 }
-document.getElementById('batModes').addEventListener('click', (e) =>
-  changeBatteryMode(e.target.closest('.chart-mode'), document.getElementById('batModeMsg')));
 
 // ── Views (sidebar / tab bar) ──────────────────────────────────────────
 const VIEWS = ['now', 'money', 'outages', 'panels', 'system', 'settings'];

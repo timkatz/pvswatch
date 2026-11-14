@@ -231,15 +231,19 @@ test('time-of-use strip and schedule render from the plan', async ({ page, reque
   await expect(page.locator('#touTips li').first()).toContainText('Cheapest');
 });
 
-test('battery mode picker shows the PVS mode and switches it', async ({ page, request }) => {
+test('battery mode: shown on Now, switched in Settings', async ({ page, request }) => {
   const sv = await (await request.get('/sunvault')).json();
   expect(sv.battery_mode).toBe('SELF_CONSUMPTION');
-  const picker = page.locator('#batModes');
+  await expect(page.locator('#bat_mode')).toHaveText('Self-Supply mode');
+  await expect(page.locator('#batModes')).toHaveCount(0);
+  await page.locator('#bat_mode').click();
+  const picker = page.locator('#setBatModes');
   await expect(picker.locator('.chart-mode.active')).toHaveText('Self-Supply');
   await picker.getByText('Cost Savings').click();
-  await expect(page.locator('#batModeMsg')).toHaveText('Set to Cost Savings');
-  await expect(picker.locator('.chart-mode.active')).toHaveText('Cost Savings');
+  await expect(page.locator('#setBatMsg')).toHaveText('Set to Cost Savings');
   expect((await (await request.get('/sunvault')).json()).battery_mode).toBe('ENERGY_ARBITRAGE');
+  await page.locator('#appNav a[data-view="now"]').click();
+  await expect(page.locator('#bat_mode')).toHaveText('Cost Savings mode');
   // Unknown modes are refused; put the mock back for later tests.
   expect((await request.post('/battery/mode', { data: { mode: 'TURBO' } })).status()).toBe(400);
   await request.post('/battery/mode', { data: { mode: 'SELF_CONSUMPTION' } });
