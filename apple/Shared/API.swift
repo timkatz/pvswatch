@@ -312,3 +312,47 @@ struct API {
         return try Self.decoder.decode(T.self, from: data)
     }
 }
+
+struct BatteryDoc: Decodable {
+    let battery: Now.Battery?
+    let gridState: Now.GridState
+    let homeKw: Double
+    let solarKw: Double
+    let mode: Mode
+    let reserve: Reserve
+    let units: [Unit]
+    let lifetime: Lifetime
+    let day: [Point]
+
+    struct Mode: Decodable {
+        let value: String?
+        let label: String?
+        let options: [Option]
+        struct Option: Decodable, Hashable { let value: String; let label: String; let description: String }
+    }
+    struct Reserve: Decodable { let value: Double?; let min: Double; let max: Double }
+    struct Unit: Decodable, Identifiable {
+        var id: Int { index ?? 0 }
+        let index: Int?
+        let model: String?
+        let serial: String?
+        let kw: Double?
+        let soc: Double?
+        let health: Double?
+        let tempC: Double?
+        let inverterTempC: Double?
+        let voltage: Double?
+        let chargedKwh: Double?
+        let dischargedKwh: Double?
+        let chargeLimitKw: Double?
+        let dischargeLimitKw: Double?
+    }
+    struct Lifetime: Decodable { let chargedKwh: Double?; let dischargedKwh: Double?; let roundTripPct: Double? }
+    struct Point: Decodable, Identifiable {
+        var id: Double { ts }
+        let ts: Double
+        let kw: Double?
+        let soc: Double?
+        var date: Date { Date(timeIntervalSince1970: ts) }
+    }
+}

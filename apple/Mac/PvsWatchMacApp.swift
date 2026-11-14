@@ -42,6 +42,7 @@ struct MacRoot: View {
             Group {
                 switch section {
                 case .now: NowView()
+                case .battery: BatteryView()
                 case .history: HistoryView()
                 case .money: MoneyView()
                 case .outages: OutagesView()
@@ -58,5 +59,7 @@ struct MacRoot: View {
             }
         }
         .background(Theme.bg)
+        // `-section <name>` launch argument (development) opens a section.
+        .onAppear { if let s = AppSection(rawValue: UserDefaults.standard.string(forKey: "section") ?? "") { section = s } }
     }
 }

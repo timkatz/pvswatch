@@ -2,11 +2,12 @@ import Foundation
 import Observation
 
 enum AppSection: String, CaseIterable, Identifiable, Hashable {
-    case now, history, money, outages, panels, system, settings
+    case now, battery, history, money, outages, panels, system, settings
     var id: String { rawValue }
     var title: String {
         switch self {
         case .now: "Now"
+        case .battery: "SunVault"
         case .history: "History"
         case .money: "Money"
         case .outages: "Outages"
@@ -18,6 +19,7 @@ enum AppSection: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .now: "bolt.fill"
+        case .battery: "battery.100percent.bolt"
         case .history: "chart.xyaxis.line"
         case .money: "dollarsign.circle"
         case .outages: "powerplug"
@@ -48,6 +50,9 @@ final class Store {
     var tou: Tou?
     var finance: Finance?
     var settings: SettingsDoc?
+    var battery: BatteryDoc?
+    var reserveBusy = false
+    var reserveMessage: String?
 
     var error: String?
     var lastOK: Date?
@@ -78,7 +83,7 @@ final class Store {
     func stop() { loop?.cancel(); loop = nil }
 
     private func reset() {
-        now = nil; sunvault = nil; history = nil; outages = nil; tou = nil; finance = nil; settings = nil
+        now = nil; battery = nil; sunvault = nil; history = nil; outages = nil; tou = nil; finance = nil; settings = nil
         error = nil; lastOK = nil
     }
 
@@ -88,6 +93,7 @@ final class Store {
         do {
             now = try await api.get("api/v1/now")
             sunvault = try? await api.get("api/v1/sunvault")
+            battery = try? await api.get("api/v1/battery")
             error = nil
             lastOK = Date()
         } catch {
@@ -149,6 +155,22 @@ final class Store {
             if settings != nil { await loadSettings() }
         } catch {
             modeMessage = "Not changed: \(error.localizedDescription)"
+        }
+    }
+
+    struct ReserveResult: Decodable { let reserve: Double? }
+
+    func setReserve(pct: Int) async {
+        guard let api, !reserveBusy else { return }
+        reserveBusy = true
+        reserveMessage = "Setting reserve to \(pct)%…"
+        defer { reserveBusy = false }
+        do {
+            let _: ReserveResult = try await api.send("api/v1/battery/reserve", method: "POST", body: ["pct": pct])
+            reserveMessage = "Reserve set to \(pct)%"
+            await refreshLive()
+        } catch {
+            reserveMessage = "Not changed: \(error.localizedDescription)"
         }
     }
 

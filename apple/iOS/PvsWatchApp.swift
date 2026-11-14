@@ -130,6 +130,7 @@ struct SectionMenu: ToolbarContent {
 func screen(_ s: AppSection) -> some View {
     switch s {
     case .now: NowView()
+    case .battery: BatteryView()
     case .history: HistoryView()
     case .money: MoneyView()
     case .outages: OutagesView()
