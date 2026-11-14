@@ -10,7 +10,7 @@ struct NowView: View {
             if let n = store.now {
                 StatusStrip(now: n)
                 PowerTiles(now: n)
-                Card { FlowDiagram(now: n).frame(height: 340) }
+                FlowCard(now: n)
                 if let t = store.today { TodayTiles(t: t) }
                 if !compact { BatterySection(now: n) }
             } else {
@@ -137,9 +137,10 @@ private enum FD {
     nonisolated(unsafe) static var lengths: [String: Double] = [:]
 
     static let edges: [(key: String, path: Path, color: Color, track: Bool)] = [
-        ("solar_home", line(.init(x: 300, y: 110), .init(x: 300, y: 170)), Theme.solar, true),
-        ("grid_home", line(.init(x: 140, y: 232), .init(x: 238, y: 232)), Theme.grid, true),
-        ("battery_home", line(.init(x: 460, y: 232), .init(x: 362, y: 232)), Theme.green, true),
+        // Source-to-home lines stop at the ring's outer edge.
+        ("solar_home", line(.init(x: 300, y: 110), .init(x: 300, y: 156)), Theme.solar, true),
+        ("grid_home", line(.init(x: 140, y: 232), .init(x: 224, y: 232)), Theme.grid, true),
+        ("battery_home", line(.init(x: 450, y: 232), .init(x: 376, y: 232)), Theme.green, true),
         ("solar_battery", curve(.init(x: 344, y: 80), .init(x: 430, y: 88), .init(x: 500, y: 128), .init(x: 508, y: 184)), Theme.solar, true),
         ("solar_grid", curve(.init(x: 256, y: 80), .init(x: 170, y: 88), .init(x: 100, y: 128), .init(x: 92, y: 184)), Theme.solar, true),
         ("grid_battery", curve(.init(x: 92, y: 280), .init(x: 110, y: 392), .init(x: 490, y: 392), .init(x: 508, y: 280)), Theme.grid, true),
@@ -151,8 +152,7 @@ struct FlowDiagram: View {
     let now: Now
 
     var body: some View {
-        VStack(spacing: 6) {
-            GeometryReader { g in
+        GeometryReader { g in
                 let k = min(g.size.width / FD.size.width, g.size.height / FD.size.height)
                 let dx = (g.size.width - FD.size.width * k) / 2, dy = (g.size.height - FD.size.height * k) / 2
                 let xf = CGAffineTransform(translationX: dx, y: dy).scaledBy(x: k, y: k).translatedBy(x: 0, y: FD.top)
@@ -197,17 +197,23 @@ struct FlowDiagram: View {
                         }
                     }
                     node(FD.solar, k: k, xf: xf, value: Fmt.kw(now.solarKw), sub: now.solarKw > 0.01 ? "producing" : nil, active: now.solarKw > 0.01)
-                    node(FD.grid, k: k, xf: xf, value: now.grid.direction == "balanced" ? "0.0 kW" : Fmt.kw(now.grid.kw),
+                    // Grid glows red when importing, green when exporting.
+                    node(FD.Node(x: FD.grid.x, y: FD.grid.y, r: FD.grid.r, icon: FD.grid.icon, label: FD.grid.label,
+                                 color: now.grid.direction == "exporting" ? Theme.green : Theme.grid),
+                         k: k, xf: xf, value: now.grid.direction == "balanced" ? "0.0 kW" : Fmt.kw(now.grid.kw),
                          sub: now.grid.direction == "balanced" ? nil : now.grid.direction, active: now.grid.direction != "balanced")
+                    socRing(k: k, xf: xf)
                     node(FD.battery, k: k, xf: xf, value: Fmt.kw(now.battery?.kw),
                          sub: now.battery.map { Fmt.pct($0.soc) + ($0.state == "idle" ? "" : " · \($0.state)") },
                          active: (now.battery?.state ?? "idle") != "idle")
                     homeNode(k: k, xf: xf)
                 }
-            }
-            Text(now.flow.headline).font(.footnote).foregroundStyle(Theme.dim).multilineTextAlignment(.center)
         }
+        .aspectRatio(FD.size.width / FD.size.height, contentMode: .fit)
     }
+
+    /// Scaled font size that never drops below `floor` points.
+    private func fs(_ base: CGFloat, _ k: CGFloat, floor: CGFloat) -> CGFloat { max(base * k, floor) }
 
     private func node(_ n: FD.Node, k: CGFloat, xf: CGAffineTransform, value: String, sub: String?, active: Bool) -> some View {
         let c = CGPoint(x: n.x, y: n.y).applying(xf)
@@ -220,14 +226,48 @@ struct FlowDiagram: View {
             Circle().fill(Color(hex: 0x101823))
                 .overlay(Circle().strokeBorder(active ? n.color.opacity(0.7) : Color.white.opacity(0.1), lineWidth: 2 * k))
                 .frame(width: n.r * 2 * k, height: n.r * 2 * k)
-            VStack(spacing: 1 * k) {
-                Image(systemName: n.icon).font(.system(size: 18 * k)).foregroundStyle(n.color)
-                Text(n.label).font(.system(size: 9 * k, weight: .bold)).tracking(1.2 * k).foregroundStyle(Theme.dim)
-                Text(value).font(.system(size: 14 * k, weight: .heavy)).monospacedDigit()
-                if let sub { Text(sub).font(.system(size: 8.5 * k, weight: .semibold)).foregroundStyle(Theme.dim) }
+            VStack(spacing: 1) {
+                if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 18 * k)).foregroundStyle(n.color) }
+                Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim)
+                Text(value).font(.system(size: fs(15, k, floor: 12), weight: .heavy)).monospacedDigit()
+                if let sub, k >= 0.7 { Text(sub).font(.system(size: fs(9, k, floor: 8), weight: .semibold)).foregroundStyle(Theme.dim) }
             }
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .frame(width: n.r * 2 * k - 6)
         }
         .position(c)
+    }
+
+    // Battery charge as a ring around the battery node.
+    private func socRing(k: CGFloat, xf: CGAffineTransform) -> some View {
+        let n = FD.battery
+        let soc = min(1, max(0, now.battery?.soc ?? 0))
+        let d = (n.r + 8) * 2 * k
+        let color = soc < 0.2 ? Theme.red : soc < 0.5 ? Theme.accent : Theme.green
+        return ZStack {
+            Circle().stroke(Color.white.opacity(0.07), lineWidth: 5 * k)
+            Circle().trim(from: 0, to: soc).stroke(color, style: StrokeStyle(lineWidth: 5 * k, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.8), value: soc)
+        }
+        .frame(width: d, height: d)
+        .position(CGPoint(x: n.x, y: n.y).applying(xf))
+    }
+
+    private func ringSlices() -> [(String, CGFloat, CGFloat, Color)] {
+        let p = now.flow.paths
+        let parts: [(String, Double, Color)] = [("solar", p["solar_home"] ?? 0, Theme.solar),
+                                                ("battery", p["battery_home"] ?? 0, Theme.green),
+                                                ("grid", p["grid_home"] ?? 0, Theme.grid)]
+        let total = parts.reduce(0) { $0 + $1.1 }
+        guard total > 0.01 else { return [] }
+        var start = 0.0, out: [(String, CGFloat, CGFloat, Color)] = []
+        for (name, v, color) in parts where v > 0 {
+            let len = v / total
+            out.append((name, start, start + max(0, len - (len > 0.03 ? 0.008 : 0)), color))
+            start += len
+        }
+        return out
     }
 
     private func homeNode(k: CGFloat, xf: CGAffineTransform) -> some View {
@@ -240,20 +280,25 @@ struct FlowDiagram: View {
                                          startRadius: n.r * k * 0.8, endRadius: (n.r + 30) * k))
                 .frame(width: (n.r + 30) * 2 * k, height: (n.r + 30) * 2 * k)
             Circle().stroke(Color.white.opacity(0.07), lineWidth: 6 * k).frame(width: ring, height: ring)
-            Circle().trim(from: 0, to: pct).stroke(Theme.green, style: StrokeStyle(lineWidth: 6 * k, lineCap: .round))
-                .rotationEffect(.degrees(-90)).frame(width: ring, height: ring)
-                .animation(.easeInOut(duration: 0.8), value: pct)
+            // Where home's power comes from right now, by source.
+            ForEach(ringSlices(), id: \.0) { _, from, to, color in
+                Circle().trim(from: from, to: to).stroke(color, style: StrokeStyle(lineWidth: 6 * k, lineCap: .butt))
+                    .rotationEffect(.degrees(-90)).frame(width: ring, height: ring)
+            }
+            .animation(.easeInOut(duration: 0.8), value: pct)
             Circle().fill(Color(hex: 0x101823))
                 .overlay(Circle().strokeBorder(n.color.opacity(0.5), lineWidth: 2 * k))
                 .frame(width: n.r * 2 * k, height: n.r * 2 * k)
-            VStack(spacing: 2 * k) {
-                Image(systemName: n.icon).font(.system(size: 22 * k)).foregroundStyle(n.color)
-                Text(n.label).font(.system(size: 9 * k, weight: .bold)).tracking(1.2 * k).foregroundStyle(Theme.dim)
-                Text(Fmt.kw(now.homeKw)).font(.system(size: 19 * k, weight: .heavy)).monospacedDigit()
-                if let sp = now.flow.selfPoweredPct {
-                    Text("\(Int(sp))% self-powered").font(.system(size: 8.5 * k, weight: .semibold)).foregroundStyle(Theme.dim)
+            VStack(spacing: 2) {
+                if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 22 * k)).foregroundStyle(n.color) }
+                Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim)
+                Text(Fmt.kw(now.homeKw)).font(.system(size: fs(21, k, floor: 15), weight: .heavy)).monospacedDigit()
+                if let sp = now.flow.selfPoweredPct, k >= 0.7 {
+                    Text("\(Int(sp))% self-powered").font(.system(size: fs(9, k, floor: 8), weight: .semibold)).foregroundStyle(Theme.dim)
                 }
             }
+            .lineLimit(1).minimumScaleFactor(0.8)
+            .frame(width: n.r * 2 * k - 8)
         }
         .position(c)
     }
@@ -345,6 +390,89 @@ struct TodayTiles: View {
             StatTile(icon: "dollarsign.circle", label: "Saved", value: Fmt.money(t.savingsDollars, cents: true),
                      sub: (t.gridNetKwh ?? 0) >= 0 ? "\(Fmt.kwh(t.gridImportKwh)) from the grid" : "\(Fmt.kwh(t.gridExportKwh)) sent to the grid",
                      color: Theme.green, valueColor: Theme.green)
+        }
+    }
+}
+
+
+// The Now screen's flow card: the diagram, plus where the home's power
+// comes from (and where the rest goes). Side by side when there's room.
+struct FlowCard: View {
+    let now: Now
+
+    var body: some View {
+        Card(title: "Energy flow", trailing: now.fetchedAt.map { "live · " + Fmt.time($0) }) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 28) {
+                    FlowDiagram(now: now).frame(minWidth: 460, maxWidth: 680)
+                    FlowLegend(now: now).frame(width: 250)
+                }
+                .frame(minWidth: 760)
+                VStack(spacing: 14) {
+                    FlowDiagram(now: now).frame(maxWidth: 560)
+                    FlowLegend(now: now)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+struct FlowLegend: View {
+    let now: Now
+
+    var body: some View {
+        let p = now.flow.paths
+        let sources: [(String, Double, Color)] = [("Solar", p["solar_home"] ?? 0, Theme.solar),
+                                                  ("Battery", p["battery_home"] ?? 0, Theme.green),
+                                                  ("Grid", p["grid_home"] ?? 0, Theme.grid)]
+        let total = max(0.001, sources.reduce(0) { $0 + $1.1 })
+        let elsewhere: [(String, Double, Color)] = [
+            ("Charging the battery", (p["solar_battery"] ?? 0) + (p["grid_battery"] ?? 0), Theme.green),
+            ("Sent to the grid", (p["solar_grid"] ?? 0) + (p["battery_grid"] ?? 0), Theme.solar),
+        ].filter { $0.1 > 0.05 }
+        VStack(alignment: .leading, spacing: 10) {
+            CardLabel("Your home is using")
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(Fmt.kw(now.homeKw)).font(.system(size: 28, weight: .heavy, design: .rounded)).monospacedDigit()
+                if let sp = now.flow.selfPoweredPct {
+                    Text("\(Int(sp))% self-powered").font(.caption.weight(.semibold)).foregroundStyle(Theme.green)
+                }
+            }
+            ForEach(sources, id: \.0) { name, kw, color in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle().fill(color).frame(width: 8, height: 8)
+                        Text("From \(name.lowercased())").font(.footnote)
+                        Spacer()
+                        Text(kw > 0.005 ? Fmt.kw(kw) : "—").font(.footnote.weight(.semibold)).monospacedDigit()
+                        Text("\(Int((kw / total * 100).rounded()))%").font(.caption).foregroundStyle(Theme.dim)
+                            .frame(width: 38, alignment: .trailing)
+                    }
+                    GeometryReader { g in
+                        Capsule().fill(Color.white.opacity(0.06))
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(color).frame(width: g.size.width * min(1, kw / total))
+                            }
+                    }
+                    .frame(height: 5)
+                }
+            }
+            if !elsewhere.isEmpty {
+                Divider().overlay(Theme.border)
+                ForEach(elsewhere, id: \.0) { name, kw, color in
+                    HStack {
+                        Image(systemName: "arrow.turn.down.right").font(.caption).foregroundStyle(color)
+                        Text(name).font(.footnote)
+                        Spacer()
+                        Text(Fmt.kw(kw)).font(.footnote.weight(.semibold)).monospacedDigit()
+                    }
+                }
+            }
+            Text(now.flow.headline).font(.caption).foregroundStyle(Theme.dim)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Color.white.opacity(0.04), in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.border))
         }
     }
 }
