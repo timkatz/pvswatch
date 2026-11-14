@@ -154,6 +154,12 @@ struct TileGrid<Content: View>: View {
 
 // One number with a label and a line under it, at a fixed height so tiles line up.
 struct StatTile<Footer: View>: View {
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hsc
+    private var height: CGFloat { hsc == .compact ? 100 : 128 }
+    #else
+    private let height: CGFloat = 128
+    #endif
     var icon: String?
     let label: String
     let value: String
@@ -174,7 +180,7 @@ struct StatTile<Footer: View>: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 128, maxHeight: 128, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
     }

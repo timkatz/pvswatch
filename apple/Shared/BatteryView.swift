@@ -10,10 +10,13 @@ struct BatteryView: View {
     var body: some View {
         Page {
             if let d = store.battery {
-                Card { SunVaultIllustration(doc: d).frame(height: 230).frame(maxWidth: 560).frame(maxWidth: .infinity) }
-                Summary(doc: d, sides: store.now?.houseSides)
+                // Controls first, so mode and reserve are above the fold even
+                // on the folded Duo; the numbers and charts follow.
+                Card { SunVaultIllustration(doc: d).frame(height: 190).frame(maxWidth: 560).frame(maxWidth: .infinity) }
                 ModeCards(doc: d)
                 ReserveCard(doc: d)
+                SectionHead(title: "Right now")
+                Summary(doc: d, sides: store.now?.houseSides)
                 if !d.day.isEmpty { DayCharts(doc: d) }
                 UnitsCard(doc: d)
             } else {
@@ -36,7 +39,7 @@ private struct SunVaultIllustration: View {
         let state = b?.state ?? "idle"
         let gridColor = doc.gridState.kind == "backup" ? Theme.red : doc.gridState.kind == "on_grid" ? Theme.green : Theme.dim
         GeometryReader { g in
-            HStack(alignment: .bottom, spacing: 18) {
+            HStack(alignment: .center, spacing: 18) {
                 // Hub+
                 VStack(spacing: 6) {
                     ZStack {
@@ -53,11 +56,12 @@ private struct SunVaultIllustration: View {
                     .frame(width: 70, height: g.size.height * 0.45)
                     Text("Home \(Fmt.kw(doc.homeKw))").font(.caption2).foregroundStyle(Theme.dim)
                 }
+                .padding(.bottom, 18)   // cabinets carry two label lines; keep the boxes' centers level
 
                 // Energy moving between the Hub+ and the cabinets
                 FlowArrows(state: state, phase: flow)
                     .frame(width: 34, height: 40)
-                    .padding(.bottom, g.size.height * 0.3)
+                    .padding(.bottom, 34)   // level with the cabinets' middle, above their labels
 
                 ForEach(Array(units.enumerated()), id: \.offset) { i, u in
                     Cabinet(soc: u?.soc ?? b?.soc ?? 0, reserve: doc.reserve.value, state: state,
@@ -67,7 +71,7 @@ private struct SunVaultIllustration: View {
                                height: g.size.height - 20)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { flow = 1 } }
     }
@@ -167,9 +171,45 @@ private struct Summary: View {
 private struct ModeCards: View {
     @Environment(Store.self) private var store
     let doc: BatteryDoc
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hsc
+    private var compact: Bool { hsc == .compact }
+    #else
+    private let compact = false
+    #endif
 
     var body: some View {
         SectionHead(title: "Battery mode", trailing: store.modeMessage)
+        if compact { picker } else { cards }
+    }
+
+    // Narrow screens (folded Duo): three buttons, the chosen mode explained below.
+    private var picker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(doc.mode.options, id: \.self) { o in
+                    let on = doc.mode.value == o.value
+                    Button {
+                        if !on { Task { await store.setBatteryMode(o.value, label: o.label) } }
+                    } label: {
+                        Text(o.label).font(.footnote.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .background(on ? Theme.accent : Theme.card, in: Capsule())
+                            .overlay(Capsule().strokeBorder(on ? Theme.accent : Theme.border))
+                            .foregroundStyle(on ? Color.black : Theme.text)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.modeBusy)
+                }
+            }
+            if let sel = doc.mode.options.first(where: { $0.value == doc.mode.value }) {
+                Text(sel.description).font(.caption).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var cards: some View {
         TileGrid(wide: 3) {
             ForEach(doc.mode.options, id: \.self) { o in
                 let on = doc.mode.value == o.value
@@ -188,7 +228,7 @@ private struct ModeCards: View {
                         Spacer()
                     }
                     .padding(12)
-                    .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: 84, maxHeight: 84, alignment: .topLeading)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(on ? Theme.accent : Theme.border, lineWidth: on ? 1.5 : 1))
                     .contentShape(Rectangle())

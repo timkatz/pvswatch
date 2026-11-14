@@ -138,11 +138,12 @@ private enum FD {
 
     static let edges: [(key: String, path: Path, color: Color, track: Bool)] = [
         // Source-to-home lines stop at the ring's outer edge.
-        ("solar_home", line(.init(x: 300, y: 110), .init(x: 300, y: 156)), Theme.solar, true),
-        ("grid_home", line(.init(x: 140, y: 232), .init(x: 224, y: 232)), Theme.grid, true),
-        ("battery_home", line(.init(x: 450, y: 232), .init(x: 376, y: 232)), Theme.green, true),
+        ("solar_home", line(.init(x: 300, y: 110), .init(x: 300, y: 160)), Theme.solar, true),
+        ("grid_home", line(.init(x: 140, y: 232), .init(x: 228, y: 232)), Theme.grid, true),
+        ("battery_home", line(.init(x: 454, y: 232), .init(x: 372, y: 232)), Theme.green, true),
         ("solar_battery", curve(.init(x: 344, y: 80), .init(x: 430, y: 88), .init(x: 500, y: 128), .init(x: 508, y: 184)), Theme.solar, true),
-        ("solar_grid", curve(.init(x: 256, y: 80), .init(x: 170, y: 88), .init(x: 100, y: 128), .init(x: 92, y: 184)), Theme.solar, true),
+        // Exports are green, like the grid's "exporting" state.
+        ("solar_grid", curve(.init(x: 256, y: 80), .init(x: 170, y: 88), .init(x: 100, y: 128), .init(x: 92, y: 184)), Theme.green, true),
         ("grid_battery", curve(.init(x: 92, y: 280), .init(x: 110, y: 392), .init(x: 490, y: 392), .init(x: 508, y: 280)), Theme.grid, true),
         ("battery_grid", curve(.init(x: 508, y: 280), .init(x: 490, y: 392), .init(x: 110, y: 392), .init(x: 92, y: 280)), Theme.green, false),
     ]
@@ -223,8 +224,8 @@ struct FlowDiagram: View {
                                              startRadius: n.r * k * 0.8, endRadius: (n.r + 26) * k))
                     .frame(width: (n.r + 26) * 2 * k, height: (n.r + 26) * 2 * k)
             }
-            Circle().fill(Color(hex: 0x101823))
-                .overlay(Circle().strokeBorder(active ? n.color.opacity(0.7) : Color.white.opacity(0.1), lineWidth: 2 * k))
+            Circle().fill(Color(hex: 0x111A26))
+                .overlay(Circle().strokeBorder(active ? n.color.opacity(0.45) : Color.white.opacity(0.07), lineWidth: 1))
                 .frame(width: n.r * 2 * k, height: n.r * 2 * k)
             VStack(spacing: 1) {
                 if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 18 * k)).foregroundStyle(n.color) }
@@ -238,56 +239,27 @@ struct FlowDiagram: View {
         .position(c)
     }
 
-    // Battery charge as a ring around the battery node.
+    // Battery charge as a thin ring hugging the battery node.
     private func socRing(k: CGFloat, xf: CGAffineTransform) -> some View {
         let n = FD.battery
         let soc = min(1, max(0, now.battery?.soc ?? 0))
-        let d = (n.r + 8) * 2 * k
         let color = soc < 0.2 ? Theme.red : soc < 0.5 ? Theme.accent : Theme.green
-        return ZStack {
-            Circle().stroke(Color.white.opacity(0.07), lineWidth: 5 * k)
-            Circle().trim(from: 0, to: soc).stroke(color, style: StrokeStyle(lineWidth: 5 * k, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.easeInOut(duration: 0.8), value: soc)
-        }
-        .frame(width: d, height: d)
-        .position(CGPoint(x: n.x, y: n.y).applying(xf))
-    }
-
-    private func ringSlices() -> [(String, CGFloat, CGFloat, Color)] {
-        let p = now.flow.paths
-        let parts: [(String, Double, Color)] = [("solar", p["solar_home"] ?? 0, Theme.solar),
-                                                ("battery", p["battery_home"] ?? 0, Theme.green),
-                                                ("grid", p["grid_home"] ?? 0, Theme.grid)]
-        let total = parts.reduce(0) { $0 + $1.1 }
-        guard total > 0.01 else { return [] }
-        var start = 0.0, out: [(String, CGFloat, CGFloat, Color)] = []
-        for (name, v, color) in parts where v > 0 {
-            let len = v / total
-            out.append((name, start, start + max(0, len - (len > 0.03 ? 0.008 : 0)), color))
-            start += len
-        }
-        return out
+        return ProgressRing(value: soc, color: color, diameter: (n.r + 6) * 2 * k, width: 3.5 * k)
+            .position(CGPoint(x: n.x, y: n.y).applying(xf))
     }
 
     private func homeNode(k: CGFloat, xf: CGAffineTransform) -> some View {
         let n = FD.home
         let c = CGPoint(x: n.x, y: n.y).applying(xf)
         let pct = (now.flow.selfPoweredPct ?? 0) / 100
-        let ring = (n.r + 9) * 2 * k
+        let ring = (n.r + 6) * 2 * k
         return ZStack {
             Circle().fill(RadialGradient(colors: [n.color.opacity(0.22), .clear], center: .center,
                                          startRadius: n.r * k * 0.8, endRadius: (n.r + 30) * k))
                 .frame(width: (n.r + 30) * 2 * k, height: (n.r + 30) * 2 * k)
-            Circle().stroke(Color.white.opacity(0.07), lineWidth: 6 * k).frame(width: ring, height: ring)
-            // Where home's power comes from right now, by source.
-            ForEach(ringSlices(), id: \.0) { _, from, to, color in
-                Circle().trim(from: from, to: to).stroke(color, style: StrokeStyle(lineWidth: 6 * k, lineCap: .butt))
-                    .rotationEffect(.degrees(-90)).frame(width: ring, height: ring)
-            }
-            .animation(.easeInOut(duration: 0.8), value: pct)
-            Circle().fill(Color(hex: 0x101823))
-                .overlay(Circle().strokeBorder(n.color.opacity(0.5), lineWidth: 2 * k))
+            ProgressRing(value: pct, color: Theme.solar, diameter: ring, width: 3.5 * k)
+            Circle().fill(Color(hex: 0x111A26))
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.07), lineWidth: 1))
                 .frame(width: n.r * 2 * k, height: n.r * 2 * k)
             VStack(spacing: 2) {
                 if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 22 * k)).foregroundStyle(n.color) }
@@ -474,5 +446,28 @@ struct FlowLegend: View {
                 .background(Color.white.opacity(0.04), in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.border))
         }
+    }
+}
+
+
+// A thin progress ring with a faint track, a soft gradient and a glow.
+struct ProgressRing: View {
+    let value: Double
+    let color: Color
+    let diameter: CGFloat
+    let width: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.06), lineWidth: width)
+            Circle().trim(from: 0, to: max(0.001, value))
+                .stroke(AngularGradient(colors: [color.opacity(0.55), color], center: .center,
+                                        startAngle: .degrees(0), endAngle: .degrees(360 * max(0.05, value))),
+                        style: StrokeStyle(lineWidth: width, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .shadow(color: color.opacity(0.6), radius: width * 1.2)
+                .animation(.easeInOut(duration: 0.8), value: value)
+        }
+        .frame(width: diameter, height: diameter)
     }
 }

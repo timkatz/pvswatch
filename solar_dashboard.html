@@ -109,17 +109,17 @@
     }
 
     /* ── SunVault view ── */
-    .sv-art { display: flex; align-items: flex-end; justify-content: center; gap: 1.1rem; padding: 1.4rem 1rem 1rem; min-height: 250px; }
+    .sv-art { display: flex; align-items: center; justify-content: center; gap: 1.1rem; padding: 1.1rem 1rem 0.9rem; min-height: 220px; }
     .sv-hub { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
     .sv-hub .box { width: 70px; height: 110px; border-radius: 8px; background: #1c2633; border: 1.5px solid var(--border);
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.45rem; font-size: 0.7rem; color: var(--text-dim); font-weight: 700; }
     .sv-hub .light { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
     .sv-hub .light.on_grid { background: var(--green); box-shadow: 0 0 8px var(--green); }
     .sv-hub .light.backup { background: var(--red); box-shadow: 0 0 8px var(--red); }
-    .sv-arrows { font-weight: 800; letter-spacing: 0.1em; color: var(--border); margin-bottom: 4.5rem; }
+    .sv-arrows { font-weight: 800; letter-spacing: 0.1em; color: var(--border); margin-bottom: 2.2rem; }
     .sv-arrows.charging { color: var(--green); } .sv-arrows.discharging { color: var(--accent); }
     .sv-cab { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
-    .sv-cab .shell { position: relative; width: 84px; height: 190px; border-radius: 14px; border: 2px solid #3a4656;
+    .sv-cab .shell { position: relative; width: 84px; height: 165px; border-radius: 14px; border: 2px solid #3a4656;
       background: rgba(233,236,239,0.06); overflow: hidden; }
     .sv-cab .fill { position: absolute; left: 10px; right: 10px; bottom: 10px; border-radius: 8px;
       background: linear-gradient(to top, rgba(34,197,94,0.95), rgba(34,197,94,0.55)); transition: height 0.8s; }
@@ -140,7 +140,7 @@
     .sv-reserve { padding: 0.9rem 1rem; margin-top: 0.75rem; }
     #svReserveSet[hidden] { display: none !important; }
     .sv-art { margin-top: 0.75rem; }
-    #svTiles { margin-top: 0.6rem; }
+    .sv-modes { margin-top: 0; }
     .sv-reserve .label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
     .sv-reserve-row { display: flex; align-items: baseline; gap: 0.5rem; margin: 0.25rem 0; }
     .sv-reserve-row .value { font-size: 1.6rem; font-weight: 800; }
@@ -756,14 +756,14 @@
     .fd-line.on { opacity: 0.9; }
     .fd-dot   { opacity: 0; filter: url(#fdGlow); }
     .fd-dot.on { opacity: 1; }
-    .fd-node  { fill: #101823; stroke: rgba(255,255,255,0.10); stroke-width: 2; transition: stroke 0.4s; }
+    .fd-node  { fill: #111a26; stroke: rgba(255,255,255,0.07); stroke-width: 1; }
     .fd-halo  { opacity: 0; transition: opacity 0.6s; }
     .fd-halo.on { opacity: 1; animation: fdPulse 2.4s ease-in-out infinite; }
     @keyframes fdPulse { 0%,100% { opacity: 0.55; } 50% { opacity: 1; } }
-    .fd-soc { fill: none; stroke: var(--green); stroke-width: 5; stroke-linecap: round;
+    .fd-soc { fill: none; stroke: var(--green); stroke-width: 3.5; stroke-linecap: round; filter: url(#fdGlow);
               transform: rotate(-90deg); transform-origin: 508px 232px; transition: stroke-dasharray 0.8s, stroke 0.4s; }
-    .fd-ring-bg { fill: none; stroke: rgba(255,255,255,0.07); stroke-width: 6; }
-    .fd-ring   { fill: none; stroke-width: 6; stroke-linecap: butt;
+    .fd-ring-bg { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 3.5; }
+    .fd-ring   { fill: none; stroke: #f59e0b; stroke-width: 3.5; stroke-linecap: round; filter: url(#fdGlow);
                  transform: rotate(-90deg); transform-origin: 300px 232px;
                  transition: stroke-dasharray 0.8s, stroke-dashoffset 0.8s; }
     .node-icon  { font-size: 22px; dominant-baseline: middle; }
@@ -1097,7 +1097,6 @@
 
     <section class="view" data-view="battery">
     <div class="chart-card sv-art" id="svArt"></div>
-    <div class="tile-grid" id="svTiles"></div>
     <div class="section-head"><h2>Battery mode</h2><span class="section-meta" id="svModeMsg"></span></div>
     <div class="sv-modes" id="svModes"></div>
     <div class="chart-card sv-reserve">
@@ -1110,6 +1109,8 @@
       <input type="range" id="svReserve" min="5" max="100" step="5">
       <div class="sub">In Self-Supply and Cost Savings the battery stops discharging at this level, so it's there when the grid goes down.</div>
     </div>
+    <div class="section-head"><h2>Right now</h2></div>
+    <div class="tile-grid" id="svTiles"></div>
     <div class="section-head"><h2>Last 24 hours</h2></div>
     <div class="chart-card"><div style="height:200px;position:relative"><canvas id="svDayChart"></canvas></div></div>
     <div class="section-head"><h2>Units</h2><span class="section-meta" id="svLifetime"></span></div>
@@ -2183,11 +2184,11 @@ const FD_NODES = {
   home:    { x: 300, y: 232, r: 60, icon: '🏠', label: 'HOME',    color: '#3b82f6' },
 };
 const FD_EDGES = {
-  solar_home:    { d: 'M300,110 L300,156', color: '#f59e0b' },
-  grid_home:     { d: 'M140,232 L224,232', color: '#ef4444' },
-  battery_home:  { d: 'M450,232 L376,232', color: '#22c55e' },
+  solar_home:    { d: 'M300,110 L300,160', color: '#f59e0b' },
+  grid_home:     { d: 'M140,232 L228,232', color: '#ef4444' },
+  battery_home:  { d: 'M454,232 L372,232', color: '#22c55e' },
   solar_battery: { d: 'M344,80 C430,88 500,128 508,184', color: '#f59e0b' },
-  solar_grid:    { d: 'M256,80 C170,88 100,128 92,184', color: '#f59e0b' },
+  solar_grid:    { d: 'M256,80 C170,88 100,128 92,184', color: '#22c55e' },  // exports read green
   grid_battery:  { d: 'M92,280 C110,392 490,392 508,280', color: '#ef4444' },
   battery_grid:  { d: 'M508,280 C490,392 110,392 92,280', color: '#22c55e' },
 };
@@ -2211,10 +2212,10 @@ function buildFlowSvg() {
     for (let i = 0; i < FD_DOTS; i++) h += `<circle class="fd-dot" id="fdot_${k}_${i}" r="4.5" fill="${e.color}"/>`;
   for (const [k, n] of Object.entries(FD_NODES)) {
     h += `<circle class="fd-halo" id="halo_${k}" cx="${n.x}" cy="${n.y}" r="${n.r + 26}" fill="url(#fdHalo_${k})"/>`;
-    if (k === 'home') h += `<circle class="fd-ring-bg" cx="${n.x}" cy="${n.y}" r="${n.r + 9}"/>` +
-      ['solar', 'battery', 'grid'].map(src => `<circle class="fd-ring" id="fdRing_${src}" cx="${n.x}" cy="${n.y}" r="${n.r + 9}" stroke="${FD_NODES[src].color}" stroke-dasharray="0 999"/>`).join('');
-    if (k === 'battery') h += `<circle class="fd-ring-bg" cx="${n.x}" cy="${n.y}" r="${n.r + 8}" style="stroke-width:5"/>` +
-      `<circle class="fd-soc" id="fdSoc" cx="${n.x}" cy="${n.y}" r="${n.r + 8}" stroke-dasharray="0 999"/>`;
+    if (k === 'home') h += `<circle class="fd-ring-bg" cx="${n.x}" cy="${n.y}" r="${n.r + 6}"/>` +
+      `<circle class="fd-ring" id="fdRing" cx="${n.x}" cy="${n.y}" r="${n.r + 6}" stroke-dasharray="0 999"/>`;
+    if (k === 'battery') h += `<circle class="fd-ring-bg" cx="${n.x}" cy="${n.y}" r="${n.r + 6}"/>` +
+      `<circle class="fd-soc" id="fdSoc" cx="${n.x}" cy="${n.y}" r="${n.r + 6}" stroke-dasharray="0 999"/>`;
     h += `<circle class="fd-node" id="node_${k}_c" cx="${n.x}" cy="${n.y}" r="${n.r}"/>
       <text x="${n.x}" y="${n.y - (k === 'home' ? 24 : 18)}" text-anchor="middle" class="node-icon">${n.icon}</text>
       <text x="${n.x}" y="${n.y + (k === 'home' ? 2 : 4)}" text-anchor="middle" class="node-label">${n.label}</text>
@@ -2272,26 +2273,17 @@ function renderFlow() {
   {
     const soc = document.getElementById('fdSoc');
     if (soc) {
-      const c = 2 * Math.PI * (FD_NODES.battery.r + 8), v = Math.max(0, Math.min(1, s.batterySoc || 0));
+      const c = 2 * Math.PI * (FD_NODES.battery.r + 6), v = Math.max(0, Math.min(1, s.batterySoc || 0));
       soc.setAttribute('stroke-dasharray', `${c * v} ${c}`);
       soc.style.stroke = v < 0.2 ? 'var(--red)' : v < 0.5 ? 'var(--accent)' : 'var(--green)';
     }
   }
-  // The ring around home: where its power comes from right now, by source.
+  // The ring around home: how self-powered it is right now (solar + battery).
   {
-    const c = 2 * Math.PI * (FD_NODES.home.r + 9);
-    const p = (s.flow && s.flow.paths) || {};
-    const parts = { solar: p.solar_home || 0, battery: p.battery_home || 0, grid: p.grid_home || 0 };
-    const total = parts.solar + parts.battery + parts.grid;
-    let start = 0;
-    for (const src of ['solar', 'battery', 'grid']) {
-      const el = document.getElementById('fdRing_' + src);
-      if (!el) continue;
-      const len = total > 0.01 ? c * parts[src] / total : 0;
-      const gap = len > 6 ? 3 : 0;   // a hairline between slices
-      el.setAttribute('stroke-dasharray', `${Math.max(0, len - gap)} ${c}`);
-      el.setAttribute('stroke-dashoffset', -start);
-      start += len;
+    const ring = document.getElementById('fdRing');
+    if (ring) {
+      const c = 2 * Math.PI * (FD_NODES.home.r + 6);
+      ring.setAttribute('stroke-dasharray', `${c * (sp || 0) / 100} ${c}`);
     }
   }
   const halo = (k, on) => document.getElementById('halo_' + k)?.classList.toggle('on', !!on);
