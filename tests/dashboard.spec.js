@@ -221,3 +221,17 @@ test('time-of-use strip and schedule render from the plan', async ({ page, reque
   await expect(page.locator('#touToday .tou-seg')).toHaveCount(tou.today.length);
   await expect(page.locator('#touTips li').first()).toContainText('Cheapest');
 });
+
+test('battery mode picker shows the PVS mode and switches it', async ({ page, request }) => {
+  const sv = await (await request.get('/sunvault')).json();
+  expect(sv.battery_mode).toBe('SELF_CONSUMPTION');
+  const picker = page.locator('#batModes');
+  await expect(picker.locator('.chart-mode.active')).toHaveText('Self-Supply');
+  await picker.getByText('Cost Savings').click();
+  await expect(page.locator('#batModeMsg')).toHaveText('Set to Cost Savings');
+  await expect(picker.locator('.chart-mode.active')).toHaveText('Cost Savings');
+  expect((await (await request.get('/sunvault')).json()).battery_mode).toBe('ENERGY_ARBITRAGE');
+  // Unknown modes are refused; put the mock back for later tests.
+  expect((await request.post('/battery/mode', { data: { mode: 'TURBO' } })).status()).toBe(400);
+  await request.post('/battery/mode', { data: { mode: 'SELF_CONSUMPTION' } });
+});

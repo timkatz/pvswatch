@@ -394,6 +394,14 @@
     }
     .battery-card .value { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
     .battery-card .sub { font-size: 0.7rem; color: var(--text-dim); }
+    .battery-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.6rem; }
+    .battery-mode .label {
+      font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-dim); font-weight: 600;
+    }
+    .battery-mode .sub { font-size: 0.7rem; color: var(--text-dim); }
+    .battery-mode .sub.err { color: var(--red); }
+    #batModes .chart-mode[disabled] { opacity: 0.5; cursor: wait; }
     .soc-bar {
       width: 100%;
       height: 8px;
@@ -985,6 +993,15 @@
         <span class="value" id="bat_legs">—</span>
         <span class="sub" id="bat_legsSub">&nbsp;</span>
       </div>
+    </div>
+    <div class="battery-mode" id="batModeRow">
+      <span class="label">Mode</span>
+      <div class="chart-modes" id="batModes">
+        <button class="pill-btn chart-mode" data-mode="SELF_CONSUMPTION">Self-Supply</button>
+        <button class="pill-btn chart-mode" data-mode="ENERGY_ARBITRAGE">Cost Savings</button>
+        <button class="pill-btn chart-mode" data-mode="BACKUP_ONLY">Reserve</button>
+      </div>
+      <span class="sub" id="batModeMsg"></span>
     </div>
     <div class="units-grid" id="batteryUnits"></div>
 
@@ -1701,9 +1718,48 @@ let lastSunvault = null;
 async function fetchSunvault() {
   try {
     const r = await fetch('/sunvault');
-    if (r.ok) { lastSunvault = await r.json(); renderGridStatus(); }
+    if (r.ok) { lastSunvault = await r.json(); renderGridStatus(); renderBatteryMode(); }
   } catch (e) { /* keep the last state */ }
 }
+
+// ── Battery mode picker ────────────────────────────────────────────────
+// Same PVS setting as the SunStrong app's mode picker. POST writes it and
+// the server reads it back before answering.
+let batModeBusy = false;
+function renderBatteryMode() {
+  if (batModeBusy) return;
+  const mode = lastSunvault ? lastSunvault.battery_mode : null;
+  document.querySelectorAll('#batModes .chart-mode').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+}
+document.getElementById('batModes').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.chart-mode');
+  if (!btn || batModeBusy || btn.classList.contains('active')) return;
+  const msg = document.getElementById('batModeMsg');
+  const btns = document.querySelectorAll('#batModes .chart-mode');
+  batModeBusy = true;
+  btns.forEach(b => b.disabled = true);
+  msg.className = 'sub';
+  msg.textContent = 'Switching to ' + btn.textContent + '…';
+  try {
+    const r = await fetch('/battery/mode', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: btn.dataset.mode }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    if (lastSunvault) lastSunvault.battery_mode = j.battery_mode;
+    msg.textContent = 'Set to ' + btn.textContent;
+  } catch (err) {
+    msg.className = 'sub err';
+    msg.textContent = 'Not changed: ' + err.message;
+  } finally {
+    batModeBusy = false;
+    btns.forEach(b => b.disabled = false);
+    renderBatteryMode();
+  }
+});
 function renderGridStatus() {
   const el = document.getElementById('gridStatus');
   if (!el) return;

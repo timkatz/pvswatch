@@ -1204,6 +1204,34 @@ def _tou_savings(conn, cutoff, end_ts, solar_kwh, elapsed_h):
 MIDSTATE_ON_GRID, MIDSTATE_UNKNOWN = 2, 0
 _midstate = {"value": None, "since": None, "checked": None}
 
+# Battery mode (the app's mode picker) is this PVS var. Writable with
+# /vars?set=<name>=<value>; the query must go out unencoded, because the PVS
+# answers 400 when / and = are percent-encoded (requests' params= does that).
+BATTERY_MODE_VAR = "/ess/config/dcm/mode_param/control_mode"
+BATTERY_MODES = {
+    "SELF_CONSUMPTION": "Self-Supply",
+    "ENERGY_ARBITRAGE": "Cost Savings",
+    "BACKUP_ONLY": "Reserve",
+}
+_battery_mode = {"value": None, "checked": None}
+
+
+def _read_battery_mode(sess):
+    """Read control_mode into _battery_mode. Returns the value or None."""
+    r = sess.get(f"https://{PVS_IP}/vars?name={BATTERY_MODE_VAR}&fmt=obj",
+                 verify=False, timeout=30)
+    if r.status_code in (401, 403):
+        sessions.pop(PVS_IP, None)
+        return None
+    if r.status_code != 200:
+        return None
+    v = r.json().get(BATTERY_MODE_VAR)
+    if v is not None:
+        if _battery_mode["value"] not in (None, v):
+            logger.info("Battery mode changed %s -> %s", _battery_mode["value"], v)
+        _battery_mode.update(value=v, checked=time.time())
+    return v
+
 
 def _midstate_kind(v):
     if v is None or v == MIDSTATE_UNKNOWN:
@@ -1266,6 +1294,7 @@ def _midstate_watch():
                     v = r.json().get("/sys/livedata/midstate")
                     if v is not None:
                         _midstate_record(int(float(v)))
+                    _read_battery_mode(sess)
         except Exception as e:
             logger.debug("midstate poll failed: %s", e)
         time.sleep(MIDSTATE_POLL_SECS)
@@ -3271,6 +3300,8 @@ def sunvault_state():
         v = MOCK_LIVEDATA_TEMPLATE.get("midstate") if MOCK_LIVEDATA_TEMPLATE else None
         if v is not None:
             _midstate.update(value=int(float(v)), since=time.time() - 3600, checked=time.time())
+    if MOCK_PVS and _battery_mode["value"] is None:
+        _battery_mode.update(value="SELF_CONSUMPTION", checked=time.time())
     try:
         conn = sqlite3.connect(DB_PATH)
         events = [{"ts": t, "value": v, "prev": p, "kind": _midstate_kind(v)} for t, v, p in conn.execute(
@@ -3290,7 +3321,42 @@ def sunvault_state():
         "since": since,
         "checked": _midstate["checked"],
         "events": events,
+        "battery_mode": _battery_mode["value"],
+        "battery_modes": BATTERY_MODES,
     }), mimetype="application/json")
+
+
+@app.route("/battery/mode", methods=["POST"])
+def set_battery_mode():
+    """Set the SunVault mode (Self-Supply / Cost Savings / Reserve) on the
+    PVS, then read it back."""
+    mode = (request.get_json(silent=True) or {}).get("mode")
+    if mode not in BATTERY_MODES:
+        return jsonify({"error": f"mode must be one of {', '.join(BATTERY_MODES)}"}), 400
+    if MOCK_PVS:
+        _battery_mode.update(value=mode, checked=time.time())
+        return jsonify({"battery_mode": mode})
+    sess, err = _get_session(PVS_IP, PVS_USER, PVS_PASS)
+    if not sess:
+        return jsonify({"error": err}), 502
+    try:
+        r = sess.get(f"https://{PVS_IP}/vars?set={BATTERY_MODE_VAR}={mode}",
+                     verify=False, timeout=30)
+        if r.status_code in (401, 403):
+            sess, err = _reauth(PVS_IP, PVS_USER, PVS_PASS)
+            if not sess:
+                return jsonify({"error": err}), 502
+            r = sess.get(f"https://{PVS_IP}/vars?set={BATTERY_MODE_VAR}={mode}",
+                         verify=False, timeout=30)
+        if r.status_code != 200:
+            return jsonify({"error": f"PVS refused the change (HTTP {r.status_code})"}), 502
+        now = _read_battery_mode(sess)
+    except Exception as e:
+        return jsonify({"error": f"PVS error: {e}"}), 502
+    if now != mode:
+        return jsonify({"error": f"PVS reports {now} after the change", "battery_mode": now}), 502
+    logger.info("Battery mode set to %s from the dashboard", mode)
+    return jsonify({"battery_mode": now})
 
 
 @app.route("/health")
