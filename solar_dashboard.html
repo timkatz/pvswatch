@@ -60,10 +60,12 @@
     .nav-group:first-child { padding-top: 0; }
     .tile-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; }
     .tile-grid .metric { min-height: 104px; }
+    .tile-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .delta-up { color: var(--red); } .delta-down { color: var(--green); }
     .tile-grid .sub.import { color: var(--red); }
     .tile-grid .sub.export { color: var(--green); }
     .flow-card { padding: 0.5rem; margin-top: 0.75rem; }
-    @media (max-width: 640px) { .tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { .tile-grid, .tile-grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (min-width: 900px) {
       .shell {
         max-width: 1180px;
@@ -1232,6 +1234,12 @@
     </section>
 
     <section class="view" data-view="money">
+    <div class="section-head"><h2 id="ytdTitle">Year to date</h2><span class="section-meta" id="ytdMeta"></span></div>
+    <div class="tile-grid three" id="ytdTiles"></div>
+    <div class="section-head"><h2>Year over year</h2><span class="section-meta">each bill vs the same month a year earlier</span></div>
+    <div class="chart-card"><div style="height:240px;position:relative"><canvas id="yoyChart"></canvas></div></div>
+    <div class="section-head"><h2>By year</h2><span class="section-meta">paid vs the estimate without solar</span></div>
+    <div class="chart-card"><div style="height:220px;position:relative"><canvas id="yearChart"></canvas></div></div>
     <div class="section-head">
       <h2>Net Cost &amp; Savings</h2>
       <div class="chart-tabs" id="finGroups">
@@ -1984,6 +1992,74 @@ document.getElementById('svReserveSet').addEventListener('click', async () => {
   fetchBattery();
 });
 
+// ── Money: year to date + year over year (from /api/v1/finance) ─────────
+let yoyChart = null, yearChart = null;
+function deltaHtml(now, before) {
+  if (now == null || !before) return '';
+  const d = now - before, pct = Math.round(Math.abs(d) / before * 100);
+  return `<span class="${d > 0 ? 'delta-up' : 'delta-down'}">${d >= 0 ? '+' : '−'}${money(Math.abs(d))} (${d >= 0 ? '+' : '−'}${pct}%)</span>`;
+}
+async function fetchMoneyTrends() {
+  try {
+    const [m, y] = await Promise.all([
+      fetch('/api/v1/finance?group=month&spread=1').then(r => r.json()),
+      fetch('/api/v1/finance?group=year&spread=1').then(r => r.json()),
+    ]);
+    renderYtd(m.headline && m.headline.ytd);
+    renderYoY(m.rows.slice(-12));
+    renderYears(y.rows);
+  } catch (e) { /* keep what's shown */ }
+}
+function renderYtd(y) {
+  const el = document.getElementById('ytdTiles');
+  if (!y) { el.innerHTML = ''; return; }
+  const prev = y.prev || {}, py = prev.year || y.year - 1;
+  document.getElementById('ytdTitle').textContent = y.year + ' year to date';
+  document.getElementById('ytdMeta').textContent = y.bills + ' bills';
+  const tile = (label, value, sub, color) => `<div class="metric"><span class="label"><span>${label}</span></span>
+    <span class="value"${color ? ` style="color:${color}"` : ''}>${value}</span><span class="sub">${sub}</span></div>`;
+  el.innerHTML =
+    tile('Paid so far', money(y.paid), `vs ${money(prev.paid)} by now in ${py} ${deltaHtml(y.paid, prev.paid)}`) +
+    tile('Saved by solar', money(y.saved), `vs ${money(prev.saved)} by now in ${py}`, (y.saved || 0) >= 0 ? 'var(--green)' : 'var(--red)') +
+    tile('Without solar', money(y.no_solar), `estimated utility bill · ${money(prev.no_solar)} in ${py}`);
+}
+const moneyAxis = { ticks: { color: '#7a8a9e', callback: v => '$' + Number(v).toLocaleString() }, grid: { color: 'rgba(255,255,255,0.04)' } };
+function chartMoneyTip(ctx) { return `${ctx.dataset.label}: ${money(ctx.parsed.y)}`; }
+function renderYoY(rows) {
+  const labels = rows.map(r => finShortMonth(r.key));
+  const data = { labels, datasets: [
+    { type: 'bar', label: 'This year', data: rows.map(r => r.total), backgroundColor: 'rgba(245,158,11,0.85)', borderRadius: 4 },
+    { type: 'line', label: 'Year before', data: rows.map(r => r.yoy_total), borderColor: 'transparent', backgroundColor: '#7a8a9e',
+      pointRadius: 5, pointHoverRadius: 7, showLine: false },
+  ] };
+  const opts = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { labels: { color: '#7a8a9e', boxWidth: 10 } }, tooltip: { callbacks: {
+      label: chartMoneyTip,
+      afterBody: (items) => { const r = rows[items[0].dataIndex];
+        return r.yoy_total ? ['Change: ' + deltaHtml(r.total, r.yoy_total).replace(/<[^>]+>/g, '')] : []; } } } },
+    scales: { x: { ticks: { color: '#7a8a9e' }, grid: { display: false } }, y: moneyAxis } };
+  if (yoyChart) { yoyChart.data = data; yoyChart.update('none'); }
+  else yoyChart = new Chart(document.getElementById('yoyChart'), { data, options: opts });
+}
+function renderYears(rows) {
+  const data = { labels: rows.map(r => r.key + (r.in_progress ? ' (so far)' : '')), datasets: [
+    { label: 'Paid', data: rows.map(r => r.total), backgroundColor: 'rgba(245,158,11,0.85)', borderRadius: 4 },
+    { label: 'Without solar', data: rows.map(r => r.no_solar), backgroundColor: 'rgba(122,138,158,0.45)', borderRadius: 4 },
+  ] };
+  const opts = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { labels: { color: '#7a8a9e', boxWidth: 10 } }, tooltip: { callbacks: {
+      label: chartMoneyTip,
+      afterBody: (items) => { const r = rows[items[0].dataIndex];
+        return r.saved == null ? [] : [(r.saved >= 0 ? 'Solar saved ' : 'Solar lost ') + money(Math.abs(r.saved))]; } } } },
+    scales: { x: { ticks: { color: '#7a8a9e' }, grid: { display: false } }, y: moneyAxis } };
+  if (yearChart) { yearChart.data = data; yearChart.update('none'); }
+  else yearChart = new Chart(document.getElementById('yearChart'), { type: 'bar', data, options: opts });
+}
+function finShortMonth(key) {
+  const [y, m] = key.split('-').map(Number);
+  return m ? new Date(y, m - 1, 1).toLocaleDateString([], { month: 'short' }) : key;
+}
+
 // ── Views (sidebar / tab bar) ──────────────────────────────────────────
 const VIEWS = ['now', 'battery', 'panels', 'history', 'money', 'outages', 'system', 'settings'];
 function showView(v) {
@@ -1994,6 +2070,7 @@ function showView(v) {
   });
   if (v === 'settings') fetchSettings();
   if (v === 'battery') fetchBattery();
+  if (v === 'money') fetchMoneyTrends();
 }
 window.addEventListener('hashchange', () => { showView(location.hash.slice(1)); window.scrollTo(0, 0); });
 showView(location.hash.slice(1));

@@ -398,3 +398,13 @@ test('clicking a panel opens its detail with history', async ({ page }) => {
   await expect(page.locator('#pm_meta')).not.toHaveText('Loading…');
   await expect(page.locator('#pm_lifetime')).not.toHaveText('—');
 });
+
+test('Money: year to date tiles and year-over-year charts', async ({ page }) => {
+  await openView(page, 'money');
+  await expect(page.locator('#ytdTiles .metric')).toHaveCount(3);
+  await expect(page.locator('#ytdTitle')).toHaveText(/\d{4} year to date/);
+  await page.waitForFunction(() => typeof yoyChart !== 'undefined' && yoyChart && yearChart);
+  const n = await page.evaluate(() => yoyChart.data.labels.length);
+  expect(n).toBeGreaterThan(0);
+  expect(n).toBeLessThanOrEqual(12);
+});
