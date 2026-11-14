@@ -1,0 +1,5 @@
+# Per-developer signing identity + bundle prefix (copy Example.xcconfig).
+Local.xcconfig
+build/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/

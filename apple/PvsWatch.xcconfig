@@ -1,0 +1,5 @@
+// Placeholders so a fresh clone builds unsigned. Put your real values in
+// Local.xcconfig (gitignored): copy Example.xcconfig.
+PVSWATCH_BUNDLE_PREFIX = com.example
+DEVELOPMENT_TEAM =
+#include? "Local.xcconfig"

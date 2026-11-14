@@ -1,0 +1,58 @@
+name: PvsWatch
+options:
+  deploymentTarget:
+    iOS: "27.1"
+    macOS: "15.0"
+  createIntermediateGroups: true
+# Signing identity + bundle prefix: PvsWatch.xcconfig (tracked placeholders)
+# optionally includes Local.xcconfig (gitignored, per developer).
+configFiles:
+  Debug: PvsWatch.xcconfig
+  Release: PvsWatch.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: PVS Watch
+    INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO # HTTPS only
+    PRODUCT_BUNDLE_IDENTIFIER: $(PVSWATCH_BUNDLE_PREFIX).pvswatch
+targets:
+  PvsWatch:
+    type: application
+    platform: iOS
+    sources: [iOS, Shared]
+    postBuildScripts:
+      - &stamp
+        name: Stamp build info
+        basedOnDependencyAnalysis: false
+        script: |
+          plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          sha=$(git -C "$SRCROOT" rev-parse --short HEAD 2>/dev/null || echo dev)
+          git -C "$SRCROOT" diff --quiet HEAD -- . 2>/dev/null || sha="$sha+"
+          /usr/libexec/PlistBuddy -c "Set :PvsCommit $sha" "$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :PvsCommit string $sha" "$plist"
+    settings:
+      base:
+        INFOPLIST_FILE: iOS/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+  PvsWatchMac:
+    type: application
+    platform: macOS
+    sources: [Mac, Shared]
+    postBuildScripts:
+      - *stamp
+    settings:
+      base:
+        PRODUCT_NAME: PVS Watch
+        CODE_SIGN_ENTITLEMENTS: Mac/PvsWatchMac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""

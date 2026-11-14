@@ -1,0 +1,498 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0901E4303A6624A063ED281E /* NowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EE327F3833E6ABABECA3242 /* NowView.swift */; };
+		0AC16CB0F2B3B25DE1E56288 /* Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */; };
+		0FC9975A92176AA45582E83B /* PvsWatchMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D756376D1D2118505D42C664 /* PvsWatchMacApp.swift */; };
+		2E377E34E8189BADE2177303 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1717875438644BE8D65D24 /* Store.swift */; };
+		4B5AEAC55810C825EA2FE5CF /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A9536CA84492AFE59F3D935 /* SettingsView.swift */; };
+		50E60F47D273BA51C6B27918 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423BE8006D9D07F2C8A07F83 /* Theme.swift */; };
+		591D576CF5BE4FF7EEA9B306 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1717875438644BE8D65D24 /* Store.swift */; };
+		7B19D7DD22B097CACC15157C /* NowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EE327F3833E6ABABECA3242 /* NowView.swift */; };
+		7B88957AF82789303B09AB0B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A9536CA84492AFE59F3D935 /* SettingsView.swift */; };
+		B1402B4693F030F686E5076B /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5AC846AE1BC990B1C4314 /* API.swift */; };
+		BA11EDE615250AD5FAD7CF2E /* Screens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */; };
+		CD8CD88AB9AF48FF5D160DEE /* API.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5AC846AE1BC990B1C4314 /* API.swift */; };
+		D056E0CF02CA7529B922C04E /* PvsWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0A2B82F3A9690BB0748E747 /* PvsWatchApp.swift */; };
+		F9D10FE47597B4A40E55349A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423BE8006D9D07F2C8A07F83 /* Theme.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		21F528B8CDFB1735D7AA06B4 /* PvsWatchMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PvsWatchMac.entitlements; sourceTree = "<group>"; };
+		2A9536CA84492AFE59F3D935 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		2B34C8ED792E4644BB9234A2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2EE327F3833E6ABABECA3242 /* NowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowView.swift; sourceTree = "<group>"; };
+		423BE8006D9D07F2C8A07F83 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		45B5AC846AE1BC990B1C4314 /* API.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = API.swift; sourceTree = "<group>"; };
+		4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Screens.swift; sourceTree = "<group>"; };
+		A0A2B82F3A9690BB0748E747 /* PvsWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PvsWatchApp.swift; sourceTree = "<group>"; };
+		D756376D1D2118505D42C664 /* PvsWatchMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PvsWatchMacApp.swift; sourceTree = "<group>"; };
+		D8A4FC58C2E483E430DC7DEA /* PvsWatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PvsWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE1717875438644BE8D65D24 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		EF4C35E21819CAE7E9F3CB8D /* PvsWatchMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PvsWatchMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		"TEMP_599422B5-95A5-4296-9664-53EA1068458E" /* PvsWatch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PvsWatch.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		18EA6F60AD1D3D06BF0565DD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D8A4FC58C2E483E430DC7DEA /* PvsWatch.app */,
+				EF4C35E21819CAE7E9F3CB8D /* PvsWatchMac.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		42DB5E75003F664B4FD2D91D /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				45B5AC846AE1BC990B1C4314 /* API.swift */,
+				2EE327F3833E6ABABECA3242 /* NowView.swift */,
+				4DF4BE79E0D261EDC0F0DE8C /* Screens.swift */,
+				2A9536CA84492AFE59F3D935 /* SettingsView.swift */,
+				EE1717875438644BE8D65D24 /* Store.swift */,
+				423BE8006D9D07F2C8A07F83 /* Theme.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		56672D7A99E24C79F8453926 /* Mac */ = {
+			isa = PBXGroup;
+			children = (
+				21F528B8CDFB1735D7AA06B4 /* PvsWatchMac.entitlements */,
+				D756376D1D2118505D42C664 /* PvsWatchMacApp.swift */,
+			);
+			path = Mac;
+			sourceTree = "<group>";
+		};
+		972DE0EF7012D4F165238EBF /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				2B34C8ED792E4644BB9234A2 /* Info.plist */,
+				A0A2B82F3A9690BB0748E747 /* PvsWatchApp.swift */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		993AB56C899CCE24801DECF0 = {
+			isa = PBXGroup;
+			children = (
+				972DE0EF7012D4F165238EBF /* iOS */,
+				56672D7A99E24C79F8453926 /* Mac */,
+				42DB5E75003F664B4FD2D91D /* Shared */,
+				18EA6F60AD1D3D06BF0565DD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		"TEMP_F62BEBE9-B7B4-479A-BD03-0B64868B7932" /* apple */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_599422B5-95A5-4296-9664-53EA1068458E" /* PvsWatch.xcconfig */,
+			);
+			path = apple;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A99446FA980A57C13785A740 /* PvsWatchMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D8CD07743837F346F3587295 /* Build configuration list for PBXNativeTarget "PvsWatchMac" */;
+			buildPhases = (
+				FE61A29953DFF9A37135FE09 /* Sources */,
+				B841CA55F4F6C1BDE7C2C26B /* Stamp build info */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PvsWatchMac;
+			packageProductDependencies = (
+			);
+			productName = PvsWatchMac;
+			productReference = EF4C35E21819CAE7E9F3CB8D /* PvsWatchMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E19FC6E840D2A0D0DF7E0F4D /* PvsWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0F6291C9C806C3E646F452B8 /* Build configuration list for PBXNativeTarget "PvsWatch" */;
+			buildPhases = (
+				03FCEF807C3CBFDD5B3A579A /* Sources */,
+				6AFB917FE55412CBF3B0CA58 /* Stamp build info */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PvsWatch;
+			packageProductDependencies = (
+			);
+			productName = PvsWatch;
+			productReference = D8A4FC58C2E483E430DC7DEA /* PvsWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3669B594AACC01EC311FF4B3 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					A99446FA980A57C13785A740 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					E19FC6E840D2A0D0DF7E0F4D = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 03738DCD3EA71AE5FFDEDC19 /* Build configuration list for PBXProject "PvsWatch" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 993AB56C899CCE24801DECF0;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 18EA6F60AD1D3D06BF0565DD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E19FC6E840D2A0D0DF7E0F4D /* PvsWatch */,
+				A99446FA980A57C13785A740 /* PvsWatchMac */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6AFB917FE55412CBF3B0CA58 /* Stamp build info */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build info";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\nsha=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo dev)\ngit -C \"$SRCROOT\" diff --quiet HEAD -- . 2>/dev/null || sha=\"$sha+\"\n/usr/libexec/PlistBuddy -c \"Set :PvsCommit $sha\" \"$plist\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :PvsCommit string $sha\" \"$plist\"\n";
+		};
+		B841CA55F4F6C1BDE7C2C26B /* Stamp build info */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp build info";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "plist=\"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\nsha=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo dev)\ngit -C \"$SRCROOT\" diff --quiet HEAD -- . 2>/dev/null || sha=\"$sha+\"\n/usr/libexec/PlistBuddy -c \"Set :PvsCommit $sha\" \"$plist\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :PvsCommit string $sha\" \"$plist\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		03FCEF807C3CBFDD5B3A579A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD8CD88AB9AF48FF5D160DEE /* API.swift in Sources */,
+				7B19D7DD22B097CACC15157C /* NowView.swift in Sources */,
+				D056E0CF02CA7529B922C04E /* PvsWatchApp.swift in Sources */,
+				BA11EDE615250AD5FAD7CF2E /* Screens.swift in Sources */,
+				4B5AEAC55810C825EA2FE5CF /* SettingsView.swift in Sources */,
+				591D576CF5BE4FF7EEA9B306 /* Store.swift in Sources */,
+				F9D10FE47597B4A40E55349A /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FE61A29953DFF9A37135FE09 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1402B4693F030F686E5076B /* API.swift in Sources */,
+				0901E4303A6624A063ED281E /* NowView.swift in Sources */,
+				0FC9975A92176AA45582E83B /* PvsWatchMacApp.swift in Sources */,
+				0AC16CB0F2B3B25DE1E56288 /* Screens.swift in Sources */,
+				7B88957AF82789303B09AB0B /* SettingsView.swift in Sources */,
+				2E377E34E8189BADE2177303 /* Store.swift in Sources */,
+				50E60F47D273BA51C6B27918 /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		12B324FD8A2D02532CB288F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Mac/PvsWatchMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_NAME = "PVS Watch";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		2A6169A5201F260730B298BB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = iOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		7D3C3ECAF3C2A0A39F8735D2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Mac/PvsWatchMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_NAME = "PVS Watch";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		D625C5041929DC58BAED54A0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_599422B5-95A5-4296-9664-53EA1068458E" /* PvsWatch.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "PVS Watch";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.1;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PVSWATCH_BUNDLE_PREFIX).pvswatch";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		D95B949A9B782B09C02AE2D1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_599422B5-95A5-4296-9664-53EA1068458E" /* PvsWatch.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "PVS Watch";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.1;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PVSWATCH_BUNDLE_PREFIX).pvswatch";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		E0433953D3A3631DE35F3B12 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = iOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		03738DCD3EA71AE5FFDEDC19 /* Build configuration list for PBXProject "PvsWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D95B949A9B782B09C02AE2D1 /* Debug */,
+				D625C5041929DC58BAED54A0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		0F6291C9C806C3E646F452B8 /* Build configuration list for PBXNativeTarget "PvsWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2A6169A5201F260730B298BB /* Debug */,
+				E0433953D3A3631DE35F3B12 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D8CD07743837F346F3587295 /* Build configuration list for PBXNativeTarget "PvsWatchMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7D3C3ECAF3C2A0A39F8735D2 /* Debug */,
+				12B324FD8A2D02532CB288F9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3669B594AACC01EC311FF4B3 /* Project object */;
+}

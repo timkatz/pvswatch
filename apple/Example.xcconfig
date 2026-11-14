@@ -1,0 +1,4 @@
+// Copy to Local.xcconfig (gitignored) and fill in your own values.
+// Never commit a real team id or bundle prefix.
+PVSWATCH_BUNDLE_PREFIX = com.yourcompany
+DEVELOPMENT_TEAM = ABCDE12345
