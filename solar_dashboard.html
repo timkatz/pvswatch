@@ -2178,15 +2178,15 @@ document.getElementById('chartTabs').addEventListener('click', (e) => {
 // is a faint track plus a glowing line and particles shown when power moves
 // along it. Who feeds whom (flow.paths) comes from /api/v1/now.
 const FD_NODES = {
-  solar:   { x: 300, y: 62,  r: 46, icon: '☀️', label: 'SOLAR',   color: '#f59e0b' },
-  grid:    { x: 92,  y: 232, r: 46, icon: '⚡', label: 'GRID',    color: '#ef4444' },
-  battery: { x: 508, y: 232, r: 46, icon: '🔋', label: 'BATTERY', color: '#22c55e' },
-  home:    { x: 300, y: 232, r: 60, icon: '🏠', label: 'HOME',    color: '#3b82f6' },
+  solar:   { x: 300, y: 62,  r: 54, icon: '☀️', label: 'SOLAR',   color: '#f59e0b' },
+  grid:    { x: 92,  y: 232, r: 54, icon: '⚡', label: 'GRID',    color: '#ef4444' },
+  battery: { x: 508, y: 232, r: 54, icon: '🔋', label: 'BATTERY', color: '#22c55e' },
+  home:    { x: 300, y: 232, r: 66, icon: '🏠', label: 'HOME',    color: '#3b82f6' },
 };
 const FD_EDGES = {
-  solar_home:    { d: 'M300,110 L300,160', color: '#f59e0b' },
-  grid_home:     { d: 'M140,232 L228,232', color: '#ef4444' },
-  battery_home:  { d: 'M454,232 L372,232', color: '#22c55e' },
+  solar_home:    { d: 'M300,118 L300,154', color: '#f59e0b' },
+  grid_home:     { d: 'M148,232 L226,232', color: '#ef4444' },
+  battery_home:  { d: 'M444,232 L374,232', color: '#22c55e' },
   solar_battery: { d: 'M344,80 C430,88 500,128 508,184', color: '#f59e0b' },
   solar_grid:    { d: 'M256,80 C170,88 100,128 92,184', color: '#22c55e' },  // exports read green
   grid_battery:  { d: 'M92,280 C110,392 490,392 508,280', color: '#ef4444' },
@@ -2264,11 +2264,11 @@ function renderFlow() {
   set('node_home_v', fmtKw(s.consKw));
   set('node_battery_v', fmtKw(s.batteryKw));
   set('node_grid_v', s.gridDirection === 'balanced' ? '0.0 kW' : fmtKw(s.gridKw));
-  set('node_battery_sub', s.batterySoc == null ? '' : Math.round(s.batterySoc * 100) + '%' + (s.batteryState && s.batteryState !== 'idle' ? ' · ' + s.batteryState : ''));
+  set('node_battery_sub', s.batterySoc == null ? '' : Math.round(s.batterySoc * 100) + '%');
   set('node_grid_sub', s.gridDirection === 'balanced' ? '' : s.gridDirection);
-  set('node_solar_sub', (s.prodKw || 0) > 0.01 ? 'producing' : '');
+  set('node_solar_sub', '');   // the glow says it's producing
   const sp = s.flow && s.flow.self_powered_pct;
-  set('node_home_sub', sp == null ? '' : sp + '% self-powered');
+  set('node_home_sub', '');    // the ring + legend carry self-powered
   // The ring around the battery: its charge, like a battery icon.
   {
     const soc = document.getElementById('fdSoc');

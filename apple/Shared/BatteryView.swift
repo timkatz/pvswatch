@@ -168,19 +168,17 @@ private struct Summary: View {
     }
 }
 
-private struct ModeCards: View {
+struct ModeCards: View {
     @Environment(Store.self) private var store
     let doc: BatteryDoc
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hsc
-    private var compact: Bool { hsc == .compact }
-    #else
-    private let compact = false
-    #endif
+    // Cards need ~240 pt each for their descriptions; below that, the picker.
+    @State private var width: CGFloat = 0
+    private var compact: Bool { width > 0 && width < 740 }
 
     var body: some View {
         SectionHead(title: "Battery mode", trailing: store.modeMessage)
-        if compact { picker } else { cards }
+        Group { if compact { picker } else { cards } }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
     // Narrow screens (folded Duo): three buttons, the chosen mode explained below.
@@ -240,7 +238,7 @@ private struct ModeCards: View {
     }
 }
 
-private struct ReserveCard: View {
+struct ReserveCard: View {
     @Environment(Store.self) private var store
     let doc: BatteryDoc
     @State private var draft: Double?

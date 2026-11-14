@@ -133,32 +133,45 @@ struct Page<Content: View>: View {
     }
 }
 
-// Stat tiles in even columns that fill the width: `wide` columns on a
-// regular-width screen, 2 on a compact one. Every tile is the same height.
+// Stat tiles in even columns that fill the width. Up to `wide` columns,
+// as many as fit at ~160 pt each — measured, not guessed from the size
+// class, so a Duo half (book posture) or a narrow window gets 2 or 1.
 struct TileGrid<Content: View>: View {
     var wide = 4
     @ViewBuilder var content: Content
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hsc
-    private var count: Int { hsc == .compact ? min(2, wide) : wide }
-    #else
-    private var count: Int { wide }
-    #endif
+    @State private var width: CGFloat = 0
+    @Environment(\.tileMinWidth) private var minWidth
+
+    // Only counts that divide `wide` evenly, so rows never end with an
+    // orphan (4 tiles go 4, 2 or 1 per row — never 3 + 1).
+    private var count: Int {
+        let fit = width > 0 ? max(1, min(wide, Int((width + 10) / (minWidth + 10)))) : min(2, wide)
+        return (1...fit).last { wide % $0 == 0 } ?? 1
+    }
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: count), spacing: 10) {
             content
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
 // One number with a label and a line under it, at a fixed height so tiles line up.
+extension EnvironmentValues {
+    /// Overrides StatTile's height (dashboard columns use shorter tiles).
+    @Entry var statTileHeight: CGFloat? = nil
+    /// Narrowest a TileGrid column may get before it drops a column.
+    @Entry var tileMinWidth: CGFloat = 160
+}
+
 struct StatTile<Footer: View>: View {
+    @Environment(\.statTileHeight) private var forced
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hsc
-    private var height: CGFloat { hsc == .compact ? 100 : 128 }
+    private var height: CGFloat { forced ?? (hsc == .compact ? 100 : 128) }
     #else
-    private let height: CGFloat = 128
+    private var height: CGFloat { forced ?? 128 }
     #endif
     var icon: String?
     let label: String

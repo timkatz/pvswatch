@@ -78,12 +78,18 @@ struct RootView: View {
             let split = crease.map { $0.minY } ?? size.height / 2
             let gap = crease?.height ?? 0
             VStack(spacing: gap) {
-                NowView(compact: true).frame(height: split)
+                // Upright leaf: the live flow, sized to fit — nothing to scroll.
+                LaptopFlow().frame(height: split)
+                // Flat leaf: SunVault controls by default (thumb-reachable),
+                // or any section picked from the menu.
                 NavigationStack {
                     Group {
-                        if detail == .history || detail == .now { BatteryDeck() } else { screen(detail) }
+                        if detail == .history || detail == .now || detail == .battery { BatteryDeck() } else { screen(detail) }
                     }
-                    .toolbar { SectionMenu(selection: $detail, exclude: nil) }
+                    .toolbar { SectionMenu(selection: $detail, exclude: .now) }
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
                 }
             }
         }
@@ -112,7 +118,30 @@ struct Tabs: View {
 struct BatteryDeck: View {
     @Environment(Store.self) private var store
     var body: some View {
-        Page { if let n = store.now { BatterySection(now: n, showPicker: true) } else { EmptyState() } }
+        Page {
+            if let d = store.battery {
+                ModeCards(doc: d)
+                ReserveCard(doc: d)
+            } else { EmptyState() }
+        }
+    }
+}
+
+// Laptop posture's upright leaf: the diagram and the breakdown side by side.
+struct LaptopFlow: View {
+    @Environment(Store.self) private var store
+    var body: some View {
+        Group {
+            if let n = store.now {
+                HStack(alignment: .center, spacing: 16) {
+                    FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    FlowLegend(now: n, compact: true).frame(width: 240)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+            } else { EmptyState() }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg)
     }
 }
 
@@ -121,12 +150,18 @@ struct SectionMenu: ToolbarContent {
     let exclude: AppSection?
     var body: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            Picker("Section", selection: $selection) {
+            // A titled menu ("SunVault ▾"), not a bare icon.
+            Menu {
                 ForEach(AppSection.allCases.filter { $0 != exclude }) { s in
-                    Label(s.title, systemImage: s.icon).tag(s)
+                    Button { selection = s } label: { Label(s.title, systemImage: s.icon) }
                 }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selection == .history ? AppSection.battery.title : selection.title).font(.headline)
+                    Image(systemName: "chevron.down").font(.caption.weight(.bold))
+                }
+                .foregroundStyle(Theme.text)
             }
-            .pickerStyle(.menu)
         }
     }
 }

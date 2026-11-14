@@ -4,13 +4,36 @@ struct NowView: View {
     @Environment(Store.self) private var store
     /// Leave out the battery section (laptop posture shows it on the other leaf).
     var compact = false
+    @State private var width: CGFloat = 0
 
     var body: some View {
         Page {
             if let n = store.now {
-                StatusStrip(now: n)
-                PowerTiles(now: n)
-                FlowCard(now: n)
+                if width >= 760 {
+                    // Wide (open Duo, landscape, Mac): one-screen dashboard —
+                    // the flow on the left, status/tiles/breakdown on the right,
+                    // sized to the screen so nothing important needs a scroll.
+                    HStack(alignment: .top, spacing: 12) {
+                        // The card hugs the diagram (aspect-fit), no stretched empty band.
+                        Card(title: "Energy flow", trailing: n.fetchedAt.map { "live · " + Fmt.time($0) }) {
+                            FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                        .frame(maxHeight: .infinity)
+                        VStack(spacing: 10) {
+                            StatusStrip(now: n)
+                            PowerTiles(now: n)
+                                .environment(\.statTileHeight, 84)
+                                .environment(\.tileMinWidth, 120)
+                            Card { FlowLegend(now: n, compact: true) }
+                        }
+                        .frame(width: min(400, max(300, width * 0.4)))
+                    }
+                    .fixedSize(horizontal: false, vertical: true)   // both columns end level
+                } else {
+                    StatusStrip(now: n)
+                    PowerTiles(now: n)
+                    FlowCard(now: n)
+                }
                 if let t = store.today { TodayTiles(t: t) }
                 if !compact { BatterySection(now: n) }
             } else {
@@ -18,6 +41,11 @@ struct NowView: View {
             }
         }
         .refreshable { await store.refreshAll() }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        #if os(iOS)
+        // The big title would sit on top of the one-screen dashboard.
+        .navigationBarTitleDisplayMode(width >= 760 ? .inline : .automatic)
+        #endif
     }
 }
 
@@ -112,10 +140,10 @@ private enum FD {
     static let size = CGSize(width: 600, height: 440)
     static let top: CGFloat = 32   // headroom so the solar halo isn't clipped
     struct Node { let x, y, r: CGFloat; let icon, label: String; let color: Color }
-    static let solar = Node(x: 300, y: 62, r: 46, icon: "sun.max.fill", label: "SOLAR", color: Theme.solar)
-    static let grid = Node(x: 92, y: 232, r: 46, icon: "bolt.horizontal.fill", label: "GRID", color: Theme.grid)
-    static let battery = Node(x: 508, y: 232, r: 46, icon: "battery.75percent", label: "BATTERY", color: Theme.green)
-    static let home = Node(x: 300, y: 232, r: 60, icon: "house.fill", label: "HOME", color: Theme.home)
+    static let solar = Node(x: 300, y: 62, r: 54, icon: "sun.max.fill", label: "SOLAR", color: Theme.solar)
+    static let grid = Node(x: 92, y: 232, r: 54, icon: "bolt.horizontal.fill", label: "GRID", color: Theme.grid)
+    static let battery = Node(x: 508, y: 232, r: 54, icon: "battery.75percent", label: "BATTERY", color: Theme.green)
+    static let home = Node(x: 300, y: 232, r: 66, icon: "house.fill", label: "HOME", color: Theme.home)
 
     static func line(_ a: CGPoint, _ b: CGPoint) -> Path { Path { $0.move(to: a); $0.addLine(to: b) } }
     static func curve(_ a: CGPoint, _ c1: CGPoint, _ c2: CGPoint, _ b: CGPoint) -> Path {
@@ -138,9 +166,9 @@ private enum FD {
 
     static let edges: [(key: String, path: Path, color: Color, track: Bool)] = [
         // Source-to-home lines stop at the ring's outer edge.
-        ("solar_home", line(.init(x: 300, y: 110), .init(x: 300, y: 160)), Theme.solar, true),
-        ("grid_home", line(.init(x: 140, y: 232), .init(x: 228, y: 232)), Theme.grid, true),
-        ("battery_home", line(.init(x: 454, y: 232), .init(x: 372, y: 232)), Theme.green, true),
+        ("solar_home", line(.init(x: 300, y: 118), .init(x: 300, y: 154)), Theme.solar, true),
+        ("grid_home", line(.init(x: 148, y: 232), .init(x: 226, y: 232)), Theme.grid, true),
+        ("battery_home", line(.init(x: 444, y: 232), .init(x: 374, y: 232)), Theme.green, true),
         ("solar_battery", curve(.init(x: 344, y: 80), .init(x: 430, y: 88), .init(x: 500, y: 128), .init(x: 508, y: 184)), Theme.solar, true),
         // Exports are green, like the grid's "exporting" state.
         ("solar_grid", curve(.init(x: 256, y: 80), .init(x: 170, y: 88), .init(x: 100, y: 128), .init(x: 92, y: 184)), Theme.green, true),
@@ -171,33 +199,34 @@ struct FlowDiagram: View {
                                 .shadow(color: e.color.opacity(0.8), radius: 4 * k)
                         }
                     }
-                    // particles
+                    // particles — positioned like the nodes, so they sit exactly on the lines
                     TimelineView(.animation) { tl in
                         let t = tl.date.timeIntervalSinceReferenceDate
-                        Canvas { ctx, _ in
-                            for e in FD.edges {
+                        ZStack {
+                            ForEach(FD.edges, id: \.key) { e in
                                 let kw = paths[e.key] ?? 0
-                                guard kw > 0.01 else { continue }
-                                // Calm, distance-based pace (design-space px/s), one
-                                // particle per ~90 px so short links don't bunch up.
-                                let len = FD.length(e.key)
-                                let speed = 18 + min(40, kw * 6)
-                                let dots = max(1, min(3, Int((len / 90).rounded())))
-                                let r = min(6, 3.5 + kw * 0.4) * k
-                                let p = e.path.applying(xf)
-                                for i in 0..<dots {
-                                    let f = (t * speed / len + Double(i) / Double(dots)).truncatingRemainder(dividingBy: 1)
-                                    guard let pt = p.trimmedPath(from: 0, to: max(0.001, f)).currentPoint else { continue }
-                                    let fade = min(1, min(f, 1 - f) * 6)
-                                    var c = ctx
-                                    c.opacity = fade
-                                    c.addFilter(.shadow(color: e.color, radius: 5 * k))
-                                    c.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)), with: .color(e.color))
+                                if kw > 0.01 {
+                                    // Calm, distance-based pace (design-space px/s), one
+                                    // particle per ~90 px so short links don't bunch up.
+                                    let len = FD.length(e.key)
+                                    let speed = 18 + min(40, kw * 6)
+                                    let dots = max(1, min(3, Int((len / 90).rounded())))
+                                    let r = min(6, 3.5 + kw * 0.4) * k
+                                    ForEach(0..<dots, id: \.self) { i in
+                                        let f = (t * speed / len + Double(i) / Double(dots)).truncatingRemainder(dividingBy: 1)
+                                        if let pt = e.path.trimmedPath(from: 0, to: max(0.001, f)).currentPoint {
+                                            Circle().fill(e.color)
+                                                .frame(width: 2 * r, height: 2 * r)
+                                                .shadow(color: e.color, radius: 4 * k)
+                                                .opacity(min(1, min(f, 1 - f) * 6))
+                                                .position(pt.applying(xf))
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    node(FD.solar, k: k, xf: xf, value: Fmt.kw(now.solarKw), sub: now.solarKw > 0.01 ? "producing" : nil, active: now.solarKw > 0.01)
+                    node(FD.solar, k: k, xf: xf, value: Fmt.kw(now.solarKw), sub: nil, active: now.solarKw > 0.01)
                     // Grid glows red when importing, green when exporting.
                     node(FD.Node(x: FD.grid.x, y: FD.grid.y, r: FD.grid.r, icon: FD.grid.icon, label: FD.grid.label,
                                  color: now.grid.direction == "exporting" ? Theme.green : Theme.grid),
@@ -205,7 +234,7 @@ struct FlowDiagram: View {
                          sub: now.grid.direction == "balanced" ? nil : now.grid.direction, active: now.grid.direction != "balanced")
                     socRing(k: k, xf: xf)
                     node(FD.battery, k: k, xf: xf, value: Fmt.kw(now.battery?.kw),
-                         sub: now.battery.map { Fmt.pct($0.soc) + ($0.state == "idle" ? "" : " · \($0.state)") },
+                         sub: now.battery.map { Fmt.pct($0.soc) },
                          active: (now.battery?.state ?? "idle") != "idle")
                     homeNode(k: k, xf: xf)
                 }
@@ -265,9 +294,7 @@ struct FlowDiagram: View {
                 if k >= 0.75 { Image(systemName: n.icon).font(.system(size: 22 * k)).foregroundStyle(n.color) }
                 Text(n.label).font(.system(size: fs(9, k, floor: 8), weight: .bold)).tracking(1).foregroundStyle(Theme.dim)
                 Text(Fmt.kw(now.homeKw)).font(.system(size: fs(21, k, floor: 15), weight: .heavy)).monospacedDigit()
-                if let sp = now.flow.selfPoweredPct, k >= 0.7 {
-                    Text("\(Int(sp))% self-powered").font(.system(size: fs(9, k, floor: 8), weight: .semibold)).foregroundStyle(Theme.dim)
-                }
+                // self-powered lives in the ring + the legend
             }
             .lineLimit(1).minimumScaleFactor(0.8)
             .frame(width: n.r * 2 * k - 8)
@@ -392,6 +419,8 @@ struct FlowCard: View {
 
 struct FlowLegend: View {
     let now: Now
+    /// Dashboard column: skip the headline caption to save height.
+    var compact = false
 
     var body: some View {
         let p = now.flow.paths
@@ -403,7 +432,7 @@ struct FlowLegend: View {
             ("Charging the battery", (p["solar_battery"] ?? 0) + (p["grid_battery"] ?? 0), Theme.green),
             ("Sent to the grid", (p["solar_grid"] ?? 0) + (p["battery_grid"] ?? 0), Theme.solar),
         ].filter { $0.1 > 0.05 }
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: compact ? 7 : 10) {
             CardLabel("Your home is using")
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(Fmt.kw(now.homeKw)).font(.system(size: 28, weight: .heavy, design: .rounded)).monospacedDigit()
@@ -441,10 +470,12 @@ struct FlowLegend: View {
                     }
                 }
             }
-            Text(now.flow.headline).font(.caption).foregroundStyle(Theme.dim)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Color.white.opacity(0.04), in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border))
+            if !compact {
+                Text(now.flow.headline).font(.caption).foregroundStyle(Theme.dim)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.white.opacity(0.04), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.border))
+            }
         }
     }
 }
