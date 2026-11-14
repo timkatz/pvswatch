@@ -10,6 +10,18 @@ team=$(sed -n 's/^DEVELOPMENT_TEAM *= *//p' Local.xcconfig 2>/dev/null)
 build=$(git rev-list --count HEAD)
 xcodegen generate -q
 
+# Upload with the Xcode account; if that fails and an App Store Connect API
+# key is configured, retry with the key. The account sign-in can lapse
+# ("Failed to Use Accounts"). Key env file: ASC_KEY_PATH, ASC_KEY_ID,
+# ASC_ISSUER_ID (kept outside the repo; ASC_ENV overrides the path).
+auth=()
+asc_env=${ASC_ENV:-$HOME/.appstoreconnect/arc.env}
+if [ -f "$asc_env" ]; then
+  # shellcheck disable=SC1090
+  . "$asc_env"
+  auth=(-authenticationKeyPath "${ASC_KEY_PATH/#\~/$HOME}" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+fi
+
 upload() { # scheme destination
   out=build/testflight/$1
   rm -rf "$out" && mkdir -p "$out"
@@ -27,8 +39,13 @@ upload() { # scheme destination
   <key>manageAppVersionAndBuildNumber</key><false/>
 </dict></plist>
 PLIST
-  xcodebuild -exportArchive -archivePath "$out/PvsWatch.xcarchive" -exportOptionsPlist "$out/export.plist" \
-    -exportPath "$out/export" -allowProvisioningUpdates 2>&1 | tail -5 | tee /dev/stderr | grep -q "EXPORT SUCCEEDED"
+  export_() { xcodebuild -exportArchive -archivePath "$out/PvsWatch.xcarchive" -exportOptionsPlist "$out/export.plist" \
+    -exportPath "$out/export" -allowProvisioningUpdates "$@" 2>&1 | tail -5; }
+  if ! export_ | tee /dev/stderr | grep -q "EXPORT SUCCEEDED"; then
+    [ ${#auth[@]} -gt 0 ] || exit 1
+    echo "retrying $1 upload with the App Store Connect API key"
+    export_ "${auth[@]}" | tee /dev/stderr | grep -q "EXPORT SUCCEEDED" || exit 1
+  fi
   echo "uploaded $1 build $build"
 }
 
