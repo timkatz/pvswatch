@@ -33,6 +33,10 @@ xcodebuild -project PvsWatch.xcodeproj -scheme PvsWatchMac -destination platform
 
 `-server` and `-section` are development launch arguments.
 
+## Install on this Mac
+
+`scripts/install-mac.sh` builds a Release copy and installs it to `/Applications`.
+
 ## TestFlight
 
 `scripts/testflight.sh [ios|mac|both]` archives, signs and uploads with the Apple account signed into Xcode. The build number is the git commit count. The App Store Connect app record has to exist first, with the bundle id `<prefix>.pvswatch` from `Local.xcconfig`.
