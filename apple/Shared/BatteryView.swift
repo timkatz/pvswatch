@@ -226,26 +226,44 @@ private struct ReserveCard: View {
 
 private struct DayCharts: View {
     let doc: BatteryDoc
+    @State private var sel: Date?
     var body: some View {
+        let hit = nearest(doc.day, to: sel, by: \.date)
         Card(title: "Last 24 hours") {
-            Chart(doc.day.filter { $0.soc != nil }) { p in
-                AreaMark(x: .value("t", p.date), y: .value("%", (p.soc ?? 0) * 100))
-                    .foregroundStyle(Theme.green.opacity(0.22))
-                LineMark(x: .value("t", p.date), y: .value("%", (p.soc ?? 0) * 100))
-                    .foregroundStyle(Theme.green)
+            Chart {
+                ForEach(doc.day.filter { $0.soc != nil }) { p in
+                    AreaMark(x: .value("t", p.date), y: .value("%", (p.soc ?? 0) * 100))
+                        .foregroundStyle(Theme.green.opacity(0.22))
+                    LineMark(x: .value("t", p.date), y: .value("%", (p.soc ?? 0) * 100))
+                        .foregroundStyle(Theme.green)
+                }
                 if let r = doc.reserve.value {
                     RuleMark(y: .value("reserve", r * 100))
                         .foregroundStyle(Theme.accent).lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
+                if let p = hit {
+                    RuleMark(x: .value("t", p.date)).foregroundStyle(Theme.dim.opacity(0.6))
+                        .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                            ChartTip(title: p.date.tipLabel, rows: [
+                                ("Charge", Fmt.pct(p.soc), Theme.green),
+                                ("Battery", flowText(p.kw, plus: "discharging", minus: "charging"), (p.kw ?? 0) < 0 ? Theme.green : Theme.accent),
+                            ])
+                        }
+                }
             }
+            .chartXSelection(value: $sel)
             .chartYScale(domain: 0...100)
             .chartYAxisLabel("charge %")
             .chartXAxis { AxisMarks(values: .automatic(desiredCount: 5)) { _ in AxisGridLine(); AxisValueLabel(format: .dateTime.hour()) } }
             .frame(height: 130)
-            Chart(doc.day.filter { $0.kw != nil }) { p in
-                BarMark(x: .value("t", p.date), y: .value("kW", -(p.kw ?? 0)))
-                    .foregroundStyle((p.kw ?? 0) < 0 ? Theme.green : Theme.accent)
+            Chart {
+                ForEach(doc.day.filter { $0.kw != nil }) { p in
+                    BarMark(x: .value("t", p.date), y: .value("kW", -(p.kw ?? 0)))
+                        .foregroundStyle((p.kw ?? 0) < 0 ? Theme.green : Theme.accent)
+                }
+                if let p = hit { RuleMark(x: .value("t", p.date)).foregroundStyle(Theme.dim.opacity(0.6)) }
             }
+            .chartXSelection(value: $sel)
             .chartYAxisLabel("kW  (+ charging)")
             .chartXAxis { AxisMarks(values: .automatic(desiredCount: 5)) { _ in AxisGridLine(); AxisValueLabel(format: .dateTime.hour()) } }
             .frame(height: 110)

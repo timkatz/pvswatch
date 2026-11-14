@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 // The dashboard's :root tokens (solar_dashboard.html).
@@ -192,5 +193,126 @@ struct SubLine: View {
     var color: Color = Theme.dim
     var body: some View {
         Text(text ?? " ").font(.caption).foregroundStyle(color).lineLimit(2)
+    }
+}
+
+// The box a chart shows for the point under the pointer (hover on Mac,
+// touch-and-drag on iPhone).
+struct ChartTip: View {
+    let title: String
+    let rows: [(label: String, value: String, color: Color)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption2.weight(.semibold)).foregroundStyle(Theme.text)
+            ForEach(rows.indices, id: \.self) { i in
+                HStack(spacing: 6) {
+                    Circle().fill(rows[i].color).frame(width: 7, height: 7)
+                    Text(rows[i].label).font(.caption2).foregroundStyle(Theme.dim)
+                    Spacer(minLength: 8)
+                    Text(rows[i].value).font(.caption2.weight(.semibold)).monospacedDigit()
+                }
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 140)
+        .background(Theme.bg.opacity(0.95), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+    }
+}
+
+/// The item whose date is closest to `date`.
+func nearest<T>(_ items: [T], to date: Date?, by key: (T) -> Date) -> T? {
+    guard let date else { return nil }
+    return items.min { abs(key($0).timeIntervalSince(date)) < abs(key($1).timeIntervalSince(date)) }
+}
+
+extension Date {
+    var tipLabel: String { formatted(.dateTime.month(.abbreviated).day().hour().minute()) }
+}
+
+// The app's own modal: a dark card over a dimmed backdrop, inside the
+// window (not a system sheet). Close with ×, a click outside, or Esc.
+struct AppModal<Item: Identifiable, Panel: View>: ViewModifier {
+    @Binding var item: Item?
+    let panel: (Item) -> Panel
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if let current = item {
+                ZStack {
+                    Color.black.opacity(0.6).ignoresSafeArea()
+                        .onTapGesture { item = nil }
+                    panel(current)
+                        .frame(maxWidth: 760)
+                        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 18))
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.border))
+                        .shadow(color: .black.opacity(0.5), radius: 30, y: 10)
+                        .padding(.horizontal, 16).padding(.vertical, 24)
+                        .transition(.scale(scale: 0.97).combined(with: .opacity))
+                }
+                #if os(macOS)
+                .onExitCommand { item = nil }
+                #endif
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: item?.id)
+    }
+}
+
+extension View {
+    func appModal<Item: Identifiable, Panel: View>(item: Binding<Item?>, @ViewBuilder _ panel: @escaping (Item) -> Panel) -> some View {
+        modifier(AppModal(item: item, panel: panel))
+    }
+}
+
+// Title row for an AppModal: title, subtitle, and a round close button.
+struct ModalHeader: View {
+    let title: String
+    var subtitle: String?
+    let close: () -> Void
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.title3.weight(.bold))
+                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(Theme.dim) }
+            }
+            Spacer()
+            Button(action: close) {
+                Image(systemName: "xmark").font(.system(size: 12, weight: .bold))
+                    .frame(width: 28, height: 28)
+                    .background(Theme.card, in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.border))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 4)
+    }
+}
+
+extension View {
+    /// Chart selection that follows the pointer: hover on Mac (Charts only
+    /// selects on click there), touch-and-drag on iPhone.
+    func chartHover<V: Plottable>(_ sel: Binding<V?>) -> some View {
+        #if os(macOS)
+        chartOverlay { proxy in
+            GeometryReader { g in
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let p):
+                            guard let plot = proxy.plotFrame else { return }
+                            sel.wrappedValue = proxy.value(atX: p.x - g[plot].origin.x, as: V.self)
+                        case .ended:
+                            sel.wrappedValue = nil
+                        }
+                    }
+            }
+        }
+        #else
+        chartXSelection(value: sel)
+        #endif
     }
 }

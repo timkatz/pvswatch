@@ -44,6 +44,7 @@ private struct Totals: View {
 struct PowerChart: View {
     let history: History
     let outages: [Outages.Outage]
+    @State private var sel: Date?
 
     var body: some View {
         let r = history.readings
@@ -74,9 +75,24 @@ struct PowerChart: View {
                         .foregroundStyle(Theme.green).lineStyle(StrokeStyle(lineWidth: 1.2, dash: [2, 3]))
                 }
             }
+            if let x = nearest(r, to: sel, by: \.date) {
+                let out = outages.first { $0.start <= x.t && x.t <= ($0.end ?? .infinity) }
+                RuleMark(x: .value("t", x.date)).foregroundStyle(Theme.dim.opacity(0.6))
+                    .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ChartTip(title: x.date.tipLabel, rows: [
+                            ("Solar", kwText(x.productionKw), Theme.solar),
+                            ("Home", kwText(x.consumptionKw), Theme.home),
+                            ("Battery", flowText(x.batteryKw, plus: "discharging", minus: "charging"), Theme.cyan),
+                            ("Grid", flowText(x.netKw, plus: "importing", minus: "exporting"), Theme.green),
+                        ] + (out.map { [($0.kind == "grid" ? "Power outage" : "PVS offline", Fmt.duration($0.durationS), $0.kind == "grid" ? Theme.red : Theme.dim)] } ?? []))
+                    }
+            }
         }
+        .chartXSelection(value: $sel)
         .chartForegroundStyleScale(["Solar": Theme.solar, "Home": Theme.home, "Battery": Theme.cyan, "Grid": Theme.green])
         .chartLegend(position: .top)
+        // `-tipDemo YES` launch argument (development): pin a tooltip open.
+        .onAppear { if UserDefaults.standard.bool(forKey: "tipDemo"), !r.isEmpty { sel = r[r.count * 3 / 4].date } }
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine()
@@ -90,14 +106,33 @@ struct PowerChart: View {
 
 private struct SocChart: View {
     let history: History
+    @State private var sel: Date?
     var body: some View {
-        Chart(history.readings.filter { $0.batterySoc != nil }) { x in
-            AreaMark(x: .value("t", x.date), y: .value("%", (x.batterySoc ?? 0) * 100))
-                .foregroundStyle(Theme.green.opacity(0.25))
-            LineMark(x: .value("t", x.date), y: .value("%", (x.batterySoc ?? 0) * 100))
-                .foregroundStyle(Theme.green)
+        let pts = history.readings.filter { $0.batterySoc != nil }
+        Chart {
+            ForEach(pts) { x in
+                AreaMark(x: .value("t", x.date), y: .value("%", (x.batterySoc ?? 0) * 100))
+                    .foregroundStyle(Theme.green.opacity(0.25))
+                LineMark(x: .value("t", x.date), y: .value("%", (x.batterySoc ?? 0) * 100))
+                    .foregroundStyle(Theme.green)
+            }
+            if let x = nearest(pts, to: sel, by: \.date) {
+                RuleMark(x: .value("t", x.date)).foregroundStyle(Theme.dim.opacity(0.6))
+                    .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ChartTip(title: x.date.tipLabel, rows: [("Charge", Fmt.pct(x.batterySoc), Theme.green),
+                                                                 ("Battery", flowText(x.batteryKw, plus: "discharging", minus: "charging"), Theme.cyan)])
+                    }
+            }
         }
+        .chartXSelection(value: $sel)
         .chartYScale(domain: 0...100)
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+                AxisGridLine()
+                AxisValueLabel(format: (pts.last?.t ?? 0) - (pts.first?.t ?? 0) > 2 * 86400
+                    ? .dateTime.month(.abbreviated).day() : .dateTime.hour())
+            }
+        }
     }
 }
 
@@ -204,8 +239,20 @@ private struct YtdTiles: View {
 // The last 12 bills as bars, with the same month a year earlier as a dot.
 private struct MonthlyYoY: View {
     let rows: [Finance.Row]
+    @State private var sel: String?
     var body: some View {
         Chart {
+            if let sel, let r = rows.first(where: { shortMonth($0.key) == sel }) {
+                RuleMark(x: .value("Month", sel)).foregroundStyle(Theme.dim.opacity(0.25)).lineStyle(StrokeStyle(lineWidth: 28))
+                    .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ChartTip(title: monthLabel(r.key), rows: [
+                            ("Paid", Fmt.money(r.total), Theme.accent),
+                            ("Year before", Fmt.money(r.yoyTotal), Theme.dim),
+                            ("Change", changeText(r.total, r.yoyTotal), (r.total ?? 0) > (r.yoyTotal ?? 0) ? Theme.red : Theme.green),
+                            ("Solar", r.saved.map { ($0 >= 0 ? "saved " : "lost ") + Fmt.money(abs($0)) } ?? "—", (r.saved ?? 0) >= 0 ? Theme.green : Theme.red),
+                        ])
+                    }
+            }
             ForEach(rows) { r in
                 BarMark(x: .value("Month", shortMonth(r.key)), y: .value("$", r.total ?? 0))
                     .foregroundStyle(by: .value("Series", "This year"))
@@ -217,6 +264,7 @@ private struct MonthlyYoY: View {
                 }
             }
         }
+        .chartXSelection(value: $sel)
         .chartForegroundStyleScale(["This year": Theme.accent, "Year before": Theme.dim])
         .chartLegend(position: .top, alignment: .leading)
         .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d)) } } } }
@@ -226,8 +274,21 @@ private struct MonthlyYoY: View {
 // Each calendar year: what you paid vs the no-solar estimate.
 private struct YearBars: View {
     let rows: [Finance.Row]
+    @State private var sel: String?
+    private func label(_ r: Finance.Row) -> String { r.key + (r.inProgress == true ? " (so far)" : "") }
     var body: some View {
         Chart {
+            if let sel, let r = rows.first(where: { label($0) == sel }) {
+                RuleMark(x: .value("Year", sel)).foregroundStyle(Theme.dim.opacity(0.18)).lineStyle(StrokeStyle(lineWidth: 90))
+                    .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ChartTip(title: label(r), rows: [
+                            ("Paid", Fmt.money(r.total), Theme.accent),
+                            ("Without solar", Fmt.money(r.noSolar), Theme.dim),
+                            ("Solar", r.saved.map { ($0 >= 0 ? "saved " : "lost ") + Fmt.money(abs($0)) } ?? "—", (r.saved ?? 0) >= 0 ? Theme.green : Theme.red),
+                            ("vs year before", changeText(r.total, r.yoyTotal), (r.total ?? 0) > (r.yoyTotal ?? 0) ? Theme.red : Theme.green),
+                        ])
+                    }
+            }
             ForEach(rows) { r in
                 BarMark(x: .value("Year", r.key + (r.inProgress == true ? " (so far)" : "")), y: .value("$", r.total ?? 0))
                     .foregroundStyle(by: .value("Series", "Paid"))
@@ -239,6 +300,7 @@ private struct YearBars: View {
                 }
             }
         }
+        .chartXSelection(value: $sel)
         .chartForegroundStyleScale(["Paid": Theme.accent, "Without solar": Theme.dim.opacity(0.6)])
         .chartLegend(position: .top, alignment: .leading)
         .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let d = v.as(Double.self) { Text(Fmt.money(d)) } } } }
@@ -382,7 +444,7 @@ struct PanelsView: View {
                 EmptyState()
             }
         }
-        .sheet(item: $selected) { PanelDetail(panel: $0) }
+        .appModal(item: $selected) { PanelDetail(panel: $0) { selected = nil } }
         // `-panel <serial>` launch argument (development) opens one panel.
         .onChange(of: store.now?.panels.count, initial: true) { _, _ in
             if selected == nil, let s = UserDefaults.standard.string(forKey: "panel"),
@@ -456,4 +518,18 @@ struct Row: View {
             Text(v ?? "—").font(.footnote).monospacedDigit().textSelection(.enabled)
         }
     }
+}
+
+
+// Tooltip text helpers.
+func kwText(_ v: Double?) -> String { v.map { String(format: "%.2f kW", $0) } ?? "—" }
+func flowText(_ v: Double?, plus: String, minus: String) -> String {
+    guard let v else { return "—" }
+    if abs(v) < 0.02 { return "idle" }
+    return String(format: "%.2f kW ", abs(v)) + (v > 0 ? plus : minus)
+}
+func changeText(_ now: Double?, _ before: Double?) -> String {
+    guard let now, let before, before > 0 else { return "—" }
+    let d = now - before
+    return "\(d >= 0 ? "+" : "−")\(Fmt.money(abs(d))) (\(d >= 0 ? "+" : "−")\(Int((abs(d) / before * 100).rounded()))%)"
 }

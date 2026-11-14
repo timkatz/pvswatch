@@ -34,14 +34,16 @@ struct PanelHistory: Decodable {
 // trends. From /api/v1/panels/<serial>/history.
 struct PanelDetail: View {
     @Environment(Store.self) private var store
-    @Environment(\.dismiss) private var dismiss
     let panel: Now.Panel
+    let close: () -> Void
     @State private var range = "7d"
     @State private var data: PanelHistory?
     @State private var error: String?
+    @State private var sel: Date?
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            ModalHeader(title: "Panel \(panel.serial.suffix(6))", subtitle: panel.model, close: close)
             Page {
                 Picker("Range", selection: $range) {
                     ForEach([("24h", "24H"), ("7d", "7D"), ("30d", "30D"), ("90d", "90D")], id: \.0) { Text($0.1).tag($0.0) }
@@ -58,15 +60,30 @@ struct PanelDetail: View {
 
                 if let d = data, !d.buckets.isEmpty {
                     Card(title: "Energy per \(bucketLabel(d.bucketSeconds))") {
-                        Chart(d.buckets) { b in
-                            BarMark(x: .value("t", b.date), y: .value("kWh", b.kwh ?? 0))
-                                .foregroundStyle(Theme.solar.gradient)
+                        let hit = nearest(d.buckets, to: sel, by: \.date)
+                        Chart {
+                            ForEach(d.buckets) { b in
+                                BarMark(x: .value("t", b.date), y: .value("kWh", b.kwh ?? 0))
+                                    .foregroundStyle(Theme.solar.gradient)
+                            }
+                            if let b = hit {
+                                RuleMark(x: .value("t", b.date)).foregroundStyle(Theme.dim.opacity(0.6))
+                                    .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                                        ChartTip(title: b.date.tipLabel, rows: [
+                                            ("Energy", b.kwh.map { String(format: "%.3f kWh", $0) } ?? "—", Theme.solar),
+                                            ("Avg power", b.avgW.map { "\(Int($0)) W" } ?? "—", Theme.accent),
+                                            ("Avg temp", b.avgTempC.map { "\(Int($0))°C" } ?? "—", Theme.cyan),
+                                        ])
+                                    }
+                            }
                         }
+                        .chartXSelection(value: $sel)
                         .chartYAxisLabel("kWh")
                         .frame(height: 180)
                     }
                     Card(title: "Average power and temperature") {
-                        Chart(d.buckets) { b in
+                        Chart {
+                          ForEach(d.buckets) { b in
                             if let w = b.avgW {
                                 LineMark(x: .value("t", b.date), y: .value("value", w), series: .value("s", "Watts"))
                                     .foregroundStyle(Theme.solar)
@@ -75,7 +92,12 @@ struct PanelDetail: View {
                                 LineMark(x: .value("t", b.date), y: .value("value", t), series: .value("s", "°C"))
                                     .foregroundStyle(Theme.cyan).lineStyle(StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
                             }
+                          }
+                          if let b = nearest(d.buckets, to: sel, by: \.date) {
+                              RuleMark(x: .value("t", b.date)).foregroundStyle(Theme.dim.opacity(0.6))
+                          }
                         }
+                        .chartXSelection(value: $sel)
                         .chartForegroundStyleScale(["Watts": Theme.solar, "°C": Theme.cyan])
                         .chartLegend(position: .top)
                         .frame(height: 160)
@@ -94,13 +116,8 @@ struct PanelDetail: View {
                     Row("DC voltage / current", "\((data?.latest?.vDc ?? panel.dcV).map { String(format: "%.1f V", $0) } ?? "—") / \((data?.latest?.iDc ?? panel.dcA).map { String(format: "%.2f A", $0) } ?? "—")")
                 }
             }
-            .navigationTitle("Panel \(panel.serial.suffix(6))")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .task(id: range) { await load() }
-        #if os(macOS)
-        .frame(minWidth: 620, minHeight: 640)
-        #endif
     }
 
     private func load() async {
