@@ -235,3 +235,34 @@ test('battery mode picker shows the PVS mode and switches it', async ({ page, re
   expect((await request.post('/battery/mode', { data: { mode: 'TURBO' } })).status()).toBe(400);
   await request.post('/battery/mode', { data: { mode: 'SELF_CONSUMPTION' } });
 });
+
+test('API v1 /now returns display-ready live data', async ({ request }) => {
+  const r = await request.get('/api/v1/now');
+  expect(r.ok()).toBeTruthy();
+  const n = await r.json();
+  for (const k of ['solar_kw', 'home_kw', 'grid', 'flow', 'electrical', 'panels', 'system']) expect(n).toHaveProperty(k);
+  expect(['importing', 'exporting', 'balanced']).toContain(n.grid.direction);
+  expect(typeof n.flow.headline).toBe('string');
+  expect(n.data_time).toBeGreaterThan(0);
+  expect(n.panels.count).toBe(n.panels.items.length);
+  expect(['producing', 'night', 'idle', 'comms_error', 'none']).toContain(n.panels.mode);
+  if (n.battery) {
+    expect(['charging', 'discharging', 'idle']).toContain(n.battery.state);
+    expect(n.battery.mode).toBe('SELF_CONSUMPTION');
+    expect(n.battery.mode_label).toBe('Self-Supply');
+  }
+  // Flow paths never hand out more than the sources have.
+  const p = n.flow.paths;
+  expect(p.solar_home + p.solar_battery + p.solar_grid).toBeLessThanOrEqual(n.solar_kw + 0.001);
+});
+
+test('API v1 aliases serve the same data as the legacy paths', async ({ request }) => {
+  for (const [v1, old] of [['/api/v1/tou', '/tou'], ['/api/v1/sunvault', '/sunvault'],
+                           ['/api/v1/outages?range=24h', '/outages?range=24h']]) {
+    const a = await request.get(v1), b = await request.get(old);
+    expect(a.status()).toBe(200);
+    expect(Object.keys(await a.json()).sort()).toEqual(Object.keys(await b.json()).sort());
+  }
+  expect((await request.get('/api/v1/history?range=24h')).ok()).toBeTruthy();
+  expect((await request.post('/api/v1/battery/mode', { data: { mode: 'NOPE' } })).status()).toBe(400);
+});

@@ -3359,6 +3359,230 @@ def set_battery_mode():
     return jsonify({"battery_mode": now})
 
 
+# ── API v1 ────────────────────────────────────────────────────────────
+# Display-ready JSON for the dashboard and the native apps. Every number a
+# screen shows is worked out here, so no client repeats the math. Shapes are
+# documented in docs/API.md; kW signs follow the PVS: grid + = importing,
+# battery + = discharging.
+API_V1_BATTERY_STALE_S = 600   # keep the last good battery reading this long
+_last_battery = {"block": None, "ts": None}
+
+
+def _num(v, default=None):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return default
+    return x if math.isfinite(x) else default
+
+
+def _curtime_epoch(s):
+    """Meter CURTIME is either 'YYYY,MM,DD,HH,MM,SS' (UTC) or ISO 8601 Z."""
+    if not s:
+        return None
+    try:
+        if "," in str(s):
+            return datetime(*[int(x) for x in str(s).split(",")[:6]], tzinfo=timezone.utc).timestamp()
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _flow_split(solar, home, battery, grid):
+    """Who feeds whom, greedy from sources to sinks: solar → home, battery,
+    grid; battery → home, grid; grid → home, battery."""
+    sol = solar
+    need = home
+    charge = -battery if battery < -0.02 else 0
+    dis = battery if battery > 0.02 else 0
+    imp = grid if grid > 0.05 else 0
+    exp = -grid if grid < -0.05 else 0
+
+    def take(a, b):
+        t = min(a, b)
+        return t, a - t, b - t
+    s_h, sol, need = take(sol, need)
+    s_b, sol, charge = take(sol, charge)
+    s_g, sol, exp = take(sol, exp)
+    b_h, dis, need = take(dis, need)
+    b_g, dis, exp = take(dis, exp)
+    g_h, imp, need = take(imp, need)
+    g_b, imp, charge = take(imp, charge)
+    paths = {"solar_home": s_h, "solar_battery": s_b, "solar_grid": s_g,
+             "battery_home": b_h, "battery_grid": b_g,
+             "grid_home": g_h, "grid_battery": g_b}
+    words = [("solar_home", "Solar is powering your home"),
+             ("battery_home", "Battery is powering your home"),
+             ("grid_home", "Grid is supplying your home"),
+             ("solar_battery", "Solar is charging the battery"),
+             ("grid_battery", "Grid is charging the battery"),
+             ("solar_grid", "Exporting solar to the grid"),
+             ("battery_grid", "Exporting battery to the grid")]
+    phrases = [w for k, w in words if paths[k] > 0.05]
+    return ({k: round(v, 3) for k, v in paths.items()},
+            " · ".join(phrases) if phrases else "System idle")
+
+
+def _panels_view(inverters, solar_kw):
+    """Classify the panels. After dark every SunPower inverter reports
+    STATE=error / OPERATION=noop (powerline comms need DC), which is normal."""
+    def state(i):
+        return (i.get("STATEDESCR") or i.get("STATE") or "").lower()
+    has_power = any(_num(i.get("p_3phsum_kw"), 0) > 0.001 or _num(i.get("vln_3phavg_v"), 0) > 0.1
+                    for i in inverters)
+    all_err = bool(inverters) and all(state(i) == "error" for i in inverters)
+    all_ok = bool(inverters) and all(state(i) == "working" for i in inverters)
+    if not inverters:
+        mode, summary = "none", "No solar panels detected"
+    elif all_err and solar_kw < 0.05 and not has_power:
+        mode, summary = "night", f"{len(inverters)} panels — nighttime idle"
+    elif all_err and not has_power:
+        mode, summary = "comms_error", f"All {len(inverters)} panels in error"
+    elif all_ok and not has_power:
+        mode, summary = "idle", f"{len(inverters)} panels idle"
+    else:
+        mode, summary = "producing", f"{len(inverters)} panels"
+    max_w = max([_num(i.get("p_3phsum_kw"), 0) * 1000 for i in inverters] or [0])
+    items = []
+    for i in inverters:
+        w = round(_num(i.get("p_3phsum_kw"), 0) * 1000)
+        ok = state(i) == "working"
+        idle_noop = not ok and (i.get("OPERATION") or "").lower() == "noop" and solar_kw < 0.05
+        if mode in ("night", "idle") or (mode == "producing" and (idle_noop or (ok and w <= 0))):
+            status = "idle"
+        elif mode == "comms_error" or not ok:
+            status = "error"
+        else:
+            status = "ok"
+        items.append({
+            "serial": i.get("SERIAL") or "",
+            "model": i.get("PANEL") or i.get("MODEL") or "",
+            "firmware": i.get("SWVER") or None,
+            "state": i.get("STATEDESCR") or i.get("STATE") or None,
+            "status": status,
+            "low": status == "ok" and max_w > 0 and 0 < w < 0.85 * max_w,
+            "w": w if status == "ok" else None,
+            "ac_v": _num(i.get("vln_3phavg_v")) or None,
+            "dc_v": _num(i.get("v_mppt1_v")) or None,
+            "dc_a": _num(i.get("i_mppt1_a")) or None,
+            "temp_c": _num(i.get("t_htsnk_degc")) or None,
+            "lifetime_kwh": _num(i.get("ltea_3phsum_kwh")) or None,
+        })
+    return {"mode": mode, "summary": summary, "count": len(inverters),
+            "errors": sum(1 for x in items if x["status"] == "error"), "items": items}
+
+
+def build_now(data, fetched_at=None):
+    """The whole live screen from one /devices snapshot."""
+    now = time.time()
+    devs = data.get("devices") or []
+    mp = next((d for d in devs if d.get("TYPE") == "PVS5-METER-P"), {})
+    mc = next((d for d in devs if d.get("TYPE") == "PVS5-METER-C"), {})
+    gw = next((d for d in devs if d.get("DEVICE_TYPE") == "PVS"), {})
+    inverters = [d for d in devs if d.get("TYPE") == "SOLARBRIDGE"]
+
+    solar = _num(mp.get("p_3phsum_kw"), 0)
+    home = _num(mc.get("p_3phsum_kw"), 0)
+    solar = 0.0 if solar <= 0.005 else solar
+    home = 0.0 if home <= 0.005 else home
+
+    # Battery: the PVS sometimes drops the block for a refresh or two
+    # (re-registering after a LAN blip). Keep the last good one a while.
+    bat = data.get("battery") or {}
+    if _num(bat.get("soc")) is not None:
+        _last_battery.update(block=bat, ts=fetched_at or now)
+    lb = _last_battery["block"] if (_last_battery["ts"] and now - _last_battery["ts"] <= API_V1_BATTERY_STALE_S) else None
+    bat_kw = _num(lb.get("p_kw")) if lb else None
+
+    grid = _num((data.get("grid") or {}).get("p_kw"))
+    grid_source = "meter"
+    if grid is None:
+        grid, grid_source = home - solar - (bat_kw or 0), "derived"
+    direction = "importing" if grid > 0.05 else "exporting" if grid < -0.05 else "balanced"
+
+    battery = None
+    if lb:
+        state = "charging" if bat_kw is not None and bat_kw < -0.05 else \
+                "discharging" if bat_kw is not None and bat_kw > 0.05 else "idle"
+        source = None
+        if state == "charging":
+            # Solar left after the house's own use is what can reach the
+            # battery; the rest comes from the grid.
+            surplus = max(0.0, solar - home)
+            source = "solar" if surplus >= -bat_kw * 0.9 else "solar+grid" if surplus > 0.05 else "grid"
+        battery = {
+            "kw": bat_kw, "soc": _num(lb.get("soc")), "backup_min": _num(lb.get("backup_min")),
+            "state": state, "charge_source": source,
+            "fetched_at": _last_battery["ts"], "stale": _last_battery["block"] is not bat,
+            "mode": _battery_mode["value"], "mode_label": BATTERY_MODES.get(_battery_mode["value"]),
+        }
+
+    # House sides: the meter gives grid power per leg; solar and battery are
+    # 240 V and split evenly. PCS caps discharge at ~2x the lighter side.
+    sides = None
+    l1, l2 = _num(mc.get("p1_kw")), _num(mc.get("p2_kw"))
+    if l1 is not None and l2 is not None:
+        shared = (solar + (bat_kw or 0)) / 2
+        h1, h2 = max(0.0, l1 + shared), max(0.0, l2 + shared)
+        gap = abs(h1 - h2)
+        sides = {"l1_kw": round(h1, 3), "l2_kw": round(h2, 3), "gap_kw": round(gap, 3),
+                 "balanced": gap < 0.2, "battery_cover_kw": round(max(0.0, 2 * min(h1, h2) - 0.1), 3)}
+
+    flow, headline = _flow_split(solar, home, bat_kw or 0, grid)
+    pf_p, pf_c = _num(mp.get("tot_pf_rto")), _num(mc.get("tot_pf_rto"))
+    return {
+        "ts": now,
+        "fetched_at": fetched_at,
+        "data_time": _curtime_epoch(mp.get("CURTIME")),
+        "solar_kw": round(solar, 3),
+        "home_kw": round(home, 3),
+        "grid": {"kw": round(grid, 3), "direction": direction, "source": grid_source},
+        "battery": battery,
+        "house_sides": sides,
+        "flow": {"paths": flow, "headline": headline},
+        "lifetime_kwh": _num(mp.get("net_ltea_3phsum_kwh")),
+        "electrical": {
+            "system_v": _num(mc.get("v12_v")), "l1_v": _num(mc.get("v1n_v")), "l2_v": _num(mc.get("v2n_v")),
+            "freq_hz": _num(mc.get("freq_hz")),
+            "pf_solar": pf_p if pf_p is not None and abs(pf_p) >= 0.001 else None,
+            "pf_home": pf_c,
+        },
+        "grid_state": {"kind": _midstate_kind(_midstate["value"]), "midstate": _midstate["value"]},
+        "panels": _panels_view(inverters, solar),
+        "system": {
+            "model": gw.get("MODEL"), "serial": gw.get("SERIAL"), "hw": gw.get("HWVER"),
+            "firmware": gw.get("SWVER"), "state": gw.get("STATE"),
+            "mem_kib": _num(gw.get("dl_mem_used")), "panel_id": gw.get("panid"),
+            "ct_type": mc.get("subtype"),
+        },
+    }
+
+
+@app.route("/api/v1/now", methods=["GET"])
+def api_now():
+    raw = cache.get()
+    if not raw:
+        msg = cache.last_error or "no PVS data yet"
+        return jsonify({"error": msg}), 503
+    return jsonify(build_now(json.loads(raw), cache.last_fetch))
+
+
+# The rest of v1 is already display-ready; these are the stable v1 paths.
+for _rule, _view, _methods in [
+    ("/api/v1/history", "history", ["GET"]),
+    ("/api/v1/history/panels", "history_panels", ["GET"]),
+    ("/api/v1/panels/<serial>/history", "panel_history", ["GET"]),
+    ("/api/v1/outages", "outages", ["GET"]),
+    ("/api/v1/sunvault", "sunvault_state", ["GET"]),
+    ("/api/v1/battery/mode", "set_battery_mode", ["POST"]),
+    ("/api/v1/finance", "finance", ["GET"]),
+    ("/api/v1/tou", "tou", ["GET"]),
+    ("/api/v1/health", "health", ["GET"]),
+]:
+    app.add_url_rule(_rule, endpoint="v1_" + _view, methods=_methods,
+                     view_func=lambda _v=_view, **kw: app.view_functions[_v](**kw))
+
+
 @app.route("/health")
 def health():
     data = cache.get()
