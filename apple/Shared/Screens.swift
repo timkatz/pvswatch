@@ -6,7 +6,7 @@ struct HistoryView: View {
     @Environment(Store.self) private var store
     private let ranges = [("6h", "6H"), ("24h", "24H"), ("7d", "7D"), ("30d", "30D"), ("90d", "90D")]
     // Calendar ranges, in the server's local timezone (weeks start Sunday).
-    private let calendar = [("yesterday", "Yday"), ("wtd", "WTD"), ("lastweek", "Last wk"),
+    private let calendar = [("today", "Today"), ("yesterday", "Yday"), ("wtd", "WTD"), ("lastweek", "Last wk"),
                             ("mtd", "MTD"), ("lastmonth", "Last mo"), ("ytd", "YTD")]
 
     var body: some View {
