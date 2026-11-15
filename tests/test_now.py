@@ -71,6 +71,10 @@ class NowTest(unittest.TestCase):
         self.assertEqual(g["self_powered_pct"], 25)
         proxy._last_battery.update(block=None, ts=None)
         self.assertEqual(proxy.build_now(snapshot())["flow"]["headline"], "System idle")
+        # A 25 W trickle into an "idle" battery draws no grid→battery line.
+        trickle = proxy.build_now(snapshot(0.15, 1.2, 1.1, -0.025))
+        self.assertEqual(trickle["battery"]["state"], "idle")
+        self.assertEqual(trickle["flow"]["paths"]["grid_battery"], 0)
 
     def test_house_sides(self):
         s = proxy.build_now(snapshot(2, 3, 1, 0, legs=(-0.5, 1.5)))["house_sides"]

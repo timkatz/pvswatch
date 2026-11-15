@@ -3421,8 +3421,10 @@ def _flow_split(solar, home, battery, grid):
     grid; battery → home, grid; grid → home, battery."""
     sol = solar
     need = home
-    charge = -battery if battery < -0.02 else 0
-    dis = battery if battery > 0.02 else 0
+    # Same ±50 W cutoff as the battery's charging/idle/discharging state, so
+    # an "idle" battery's trickle doesn't draw a flow line.
+    charge = -battery if battery < -0.05 else 0
+    dis = battery if battery > 0.05 else 0
     imp = grid if grid > 0.05 else 0
     exp = -grid if grid < -0.05 else 0
 
