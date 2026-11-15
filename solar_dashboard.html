@@ -731,6 +731,7 @@
       }
       .chart-tabs::-webkit-scrollbar { display: none; }
       .chart-tabs .pill-btn { flex: 0 0 auto; }
+      .tab-break { display: none; }
       .chart-modes + .chart-tabs { margin-left: 0; padding-left: 0.5rem; }
       .pill-btn { height: 30px !important; min-height: 30px; max-height: 30px; padding: 0 0.7rem; font-size: 0.72rem; }
     }
@@ -818,9 +819,13 @@
     }
     .chart-tabs {
       display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 0.35rem;
     }
-    .chart-tab { border-radius: 9999px; }
+    .chart-tab { border-radius: 9999px; white-space: nowrap; }
+    /* Calendar ranges on one row, rolling ranges on the next */
+    .tab-break { flex-basis: 100%; height: 0; }
     .chart-tab:hover { background: var(--bg-card-hover); color: var(--text); }
     .chart-tab.active {
       background: var(--accent);
@@ -1065,6 +1070,14 @@
       <div class="metric"><span class="label"><span>💵 Saved</span></span><span class="value" id="td_saved" style="color:var(--green)">—</span><span class="sub" id="td_grid">&nbsp;</span></div>
     </div>
 
+    <div class="section-head"><h2>Yesterday</h2></div>
+    <div class="tile-grid" id="yesterdayTiles">
+      <div class="metric"><span class="label"><span>☀️ Solar made</span></span><span class="value" id="yd_solar">—</span><span class="sub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🏠 Home used</span></span><span class="value" id="yd_home">—</span><span class="sub">&nbsp;</span></div>
+      <div class="metric"><span class="label"><span>🍃 Independence</span></span><span class="value" id="yd_ind">—</span><span class="sub">solar made ÷ home used</span></div>
+      <div class="metric"><span class="label"><span>💵 Saved</span></span><span class="value" id="yd_saved" style="color:var(--green)">—</span><span class="sub" id="yd_grid">&nbsp;</span></div>
+    </div>
+
     <div class="section-head"><h2>SunVault</h2><span class="section-meta" id="batteryAsOf"></span></div>
     <div class="grid-status" id="gridStatus" role="status"></div>
     <div class="battery-grid" id="batterySection">
@@ -1128,6 +1141,12 @@
         <div class="chart-tabs" id="chartTabs">
           <button class="pill-btn chart-tab" data-range="today">TODAY</button>
           <button class="pill-btn chart-tab" data-range="yesterday">YESTERDAY</button>
+          <button class="pill-btn chart-tab" data-range="wtd">WTD</button>
+          <button class="pill-btn chart-tab" data-range="lastweek">LAST WK</button>
+          <button class="pill-btn chart-tab" data-range="mtd">MTD</button>
+          <button class="pill-btn chart-tab" data-range="lastmonth">LAST MO</button>
+          <button class="pill-btn chart-tab" data-range="ytd">YTD</button>
+          <span class="tab-break" aria-hidden="true"></span>
           <button class="pill-btn chart-tab" data-range="1h">1H</button>
           <button class="pill-btn chart-tab" data-range="6h">6H</button>
           <button class="pill-btn chart-tab active" data-range="24h">24H</button>
@@ -1402,29 +1421,33 @@ function fmtBackup(min) {
 // Map range key to display label
 const RANGE_LABEL = {
   live: 'live', today: 'today', yesterday: 'yesterday',
+  wtd: 'this week', lastweek: 'last week', mtd: 'this month', lastmonth: 'last month', ytd: 'this year',
   '1h': '1 hr', '6h': '6 hrs', '24h': '24 hrs',
   '7d': '7 days', '30d': '30 days', '90d': '90 days', '1y': '1 yr', all: 'all time',
 };
 const RANGE_SECS = {
   live: 0, today: 86400, yesterday: 86400,
+  wtd: 604800, lastweek: 604800, mtd: 2592000, lastmonth: 2592000, ytd: 31536000,
   '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800,
   '30d': 2592000, '90d': 7776000, '1y': 31536000, all: Infinity,
 };
 
 // For calendar-based ranges, compute [start, end] in browser-local time.
-// Returns null for non-calendar ranges (server uses range= alone).
+// Weeks start on Sunday. Returns null for non-calendar ranges (server uses
+// range= alone).
 function calendarWindow(rangeKey) {
   const now = new Date();
-  if (rangeKey === 'today') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    return { start: Math.floor(start.getTime() / 1000), end: Math.floor(now.getTime() / 1000) };
-  }
-  if (rangeKey === 'yesterday') {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    return { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) };
-  }
-  return null;
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate(), wd = now.getDay();
+  const win = {
+    today:     [new Date(y, m, d), now],
+    yesterday: [new Date(y, m, d - 1), new Date(y, m, d)],
+    wtd:       [new Date(y, m, d - wd), now],
+    lastweek:  [new Date(y, m, d - wd - 7), new Date(y, m, d - wd)],
+    mtd:       [new Date(y, m, 1), now],
+    lastmonth: [new Date(y, m - 1, 1), new Date(y, m, 1)],
+    ytd:       [new Date(y, 0, 1), now],
+  }[rangeKey];
+  return win ? { start: Math.floor(win[0] / 1000), end: Math.floor(win[1] / 1000) } : null;
 }
 
 async function fetchData() {
@@ -1563,7 +1586,7 @@ function manualRefresh() {
 
 // ── State ────────────────────────────────────────────────────────────
 let powerChart = null;
-let currentRange = '24h';   // 'live' | '1h' | '6h' | '24h' | '7d' | '30d' | '90d' | '1y' | 'all'
+let currentRange = '24h';   // a RANGE_SECS key
 let currentMode  = 'power'; // 'power' | 'energy'
 let liveSnapshot = null;    // last /devices snapshot (kW values)
 let lastTotals   = null;    // last /history period_totals
@@ -1631,29 +1654,31 @@ function applyTotals(t) {
   gs.className = 'sub ' + (gnet > 0.01 ? 'import' : gnet < -0.01 ? 'export' : '');
 }
 
-// ── Today row (Now view): since local midnight, refreshed every 5 min ──
+// ── Today + Yesterday rows (Now view): local calendar days, refreshed every 5 min ──
 let lastTodayFetch = 0;
 function maybeFetchToday() {
   if (Date.now() - lastTodayFetch < 5 * 60 * 1000) return;
   lastTodayFetch = Date.now();
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  fetch(`/api/v1/history?start=${Math.floor(start / 1000)}&end=${Math.floor(Date.now() / 1000)}`)
-    .then(r => r.ok ? r.json() : null)
-    .then(d => {
-      const t = d && d.period_totals;
-      if (!t) return;
-      const put = (id, kwh) => { const e = fmtEnergy(kwh || 0);
-        document.getElementById(id).innerHTML = e.value + '<span class="unit"> ' + e.unit + '</span>'; };
-      put('td_solar', t.solar_kwh);
-      put('td_home', t.home_kwh);
-      document.getElementById('td_ind').textContent = t.independence_pct == null ? '—' : Math.round(t.independence_pct) + '%';
-      document.getElementById('td_saved').textContent = '$' + (t.savings_dollars ?? 0).toFixed(2);
-      const g = t.grid_net_kwh || 0;
-      document.getElementById('td_grid').textContent = g >= 0
-        ? fmtEnergy(t.grid_import_kwh || 0).value + ' ' + fmtEnergy(t.grid_import_kwh || 0).unit + ' from the grid'
-        : fmtEnergy(t.grid_export_kwh || 0).value + ' ' + fmtEnergy(t.grid_export_kwh || 0).unit + ' sent to the grid';
-    })
-    .catch(() => { lastTodayFetch = 0; });
+  for (const [range, p] of [['today', 'td'], ['yesterday', 'yd']]) {
+    const win = calendarWindow(range);
+    fetch(`/api/v1/history?start=${win.start}&end=${win.end}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const t = d && d.period_totals;
+        if (!t) return;
+        const put = (id, kwh) => { const e = fmtEnergy(kwh || 0);
+          document.getElementById(id).innerHTML = e.value + '<span class="unit"> ' + e.unit + '</span>'; };
+        put(p + '_solar', t.solar_kwh);
+        put(p + '_home', t.home_kwh);
+        document.getElementById(p + '_ind').textContent = t.independence_pct == null ? '—' : Math.round(t.independence_pct) + '%';
+        document.getElementById(p + '_saved').textContent = '$' + (t.savings_dollars ?? 0).toFixed(2);
+        const g = t.grid_net_kwh || 0;
+        document.getElementById(p + '_grid').textContent = g >= 0
+          ? fmtEnergy(t.grid_import_kwh || 0).value + ' ' + fmtEnergy(t.grid_import_kwh || 0).unit + ' from the grid'
+          : fmtEnergy(t.grid_export_kwh || 0).value + ' ' + fmtEnergy(t.grid_export_kwh || 0).unit + ' sent to the grid';
+      })
+      .catch(() => { lastTodayFetch = 0; });
+  }
 }
 
 function applySavings(t) {
@@ -2337,6 +2362,12 @@ async function refreshAvailableRanges() {
         t.disabled = win ? earliest > win.start : false;
         return;
       }
+      const win = calendarWindow(r);
+      if (win) {
+        // Other calendar ranges: same 10% rule, measured inside the window.
+        t.disabled = (win.end - Math.max(win.start, earliest)) < 0.1 * (win.end - win.start);
+        return;
+      }
       // Enable a range tab as soon as we have at least 10% of its window in
       // history. Below that, the chart would show only a tiny sliver and the
       // label would be misleading; above it, partial coverage is still useful
@@ -2516,7 +2547,7 @@ function showOutageTip(chart, hits, x, y) {
   // Add the date when the chart spans more than a day.
   // Add the date on long charts, or when any outage shown spans midnight.
   const day = t => new Date(t * 1000).toDateString();
-  const multiDay = ['7d', '30d', '90d', '1y', 'all'].includes(currentRange)
+  const multiDay = (RANGE_SECS[currentRange] || 0) > 86400
     || hits.some(({ o }) => day(o.start) !== day(o.end ?? Date.now() / 1000));
   const opt = multiDay ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
                        : { hour: 'numeric', minute: '2-digit' };
@@ -2561,7 +2592,8 @@ function renderChart(data) {
   // because the poll period (~5m12s) drifts against 5-min buckets is not.
   const step = data.resample_seconds || 300;
   const gapSecs = Math.max(2 * step, outageGapSecs);
-  const nowSlot = Math.floor(Date.now() / 1000 / step) * step;
+  // Pad to the window's end (past calendar ranges stop before now).
+  const nowSlot = Math.floor(Math.min(Date.now() / 1000, data.end || Infinity) / step) * step;
   const slots = [];
   const pad = (from, to) => {
     for (let b = from + step; b < to && slots.length < 5000; b += step) slots.push({ bucket: b, _empty: true });
@@ -2574,8 +2606,8 @@ function renderChart(data) {
   if (nowSlot - lastB > gapSecs) pad(lastB, nowSlot + step);
   readings = slots;
 
-  // X-axis labels: include date for ranges > 24h
-  const wantsDate = ['7d','30d','90d','1y','all'].includes(currentRange);
+  // X-axis labels: include date for windows > 36h
+  const wantsDate = (data.range_secs || 0) > 129600;
   const labels = readings.map(r => {
     const d = new Date(r.bucket * 1000);
     if (wantsDate) return d.toLocaleDateString([], { month: 'short', day: 'numeric' });

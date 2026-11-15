@@ -17,7 +17,7 @@ Writes (`POST`/`DELETE`) are refused when a browser marks them cross-site (`Sec-
 | Method | Path | What it returns |
 |---|---|---|
 | GET | `/api/v1/now` | The live screen: power, flow, battery, house sides, panels, electrical, system (below) |
-| GET | `/api/v1/history?range=24h` | Time series + `period_totals`. Ranges: `1h 6h 24h 7d 30d 90d 1y all`, or `start`/`end` epochs |
+| GET | `/api/v1/history?range=24h` | Time series + `period_totals`. Ranges: `1h 6h 24h 7d 30d 90d 1y all`, calendar `today yesterday wtd lastweek mtd lastmonth ytd` (server timezone, weeks start Sunday), or `start`/`end` epochs. Also returns the window `start`/`end` |
 | GET | `/api/v1/history/panels?range=24h` | Raw per-panel readings in the window |
 | GET | `/api/v1/panels/<serial>/history?range=24h` | One panel: bucketed kWh, latest snapshot, total |
 | GET | `/api/v1/outages?range=24h` | PVS-offline and grid outages, newest first, with a summary |

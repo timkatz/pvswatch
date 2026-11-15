@@ -29,6 +29,7 @@ test('Now is live: power cards, flow diagram and Today row', async ({ page }) =>
   await expect(page.locator('#flowHeadline')).not.toHaveText('—');
   await expect(page.locator('#scope_production')).toHaveText('live');
   await expect(page.locator('#td_solar')).not.toHaveText('—');
+  await expect(page.locator('#yd_solar')).not.toHaveText('—');
   await expect(page.locator('#chartTabs')).toBeHidden();       // the chart lives in History
   await expect(page.locator('#chartTabs .chart-tab[data-range="live"]')).toHaveCount(0);
 });
@@ -407,4 +408,22 @@ test('Money: year to date tiles and year-over-year charts', async ({ page }) => 
   const n = await page.evaluate(() => yoyChart.data.labels.length);
   expect(n).toBeGreaterThan(0);
   expect(n).toBeLessThanOrEqual(12);
+});
+
+test('calendar ranges: server windows and History tabs', async ({ page, request }) => {
+  const DAY = 86400;
+  for (const [r, lo, hi] of [['today', 0, DAY + 3600], ['yesterday', DAY - 3600, DAY + 3600],
+                             ['wtd', 0, 7 * DAY + 3600], ['lastweek', 7 * DAY - 3600, 7 * DAY + 3600],
+                             ['mtd', 0, 31 * DAY + 3600], ['lastmonth', 28 * DAY - 3600, 31 * DAY + 3600],
+                             ['ytd', 0, 366 * DAY + 3600]]) {
+    const h = await (await request.get(`/api/v1/history?range=${r}`)).json();
+    expect(h.end - h.start, r).toBeGreaterThanOrEqual(lo);
+    expect(h.end - h.start, r).toBeLessThanOrEqual(hi);
+    expect(h.end, r).toBeLessThanOrEqual(Date.now() / 1000 + 5);
+  }
+  await openView(page, 'history');
+  for (const r of ['wtd', 'lastweek', 'mtd', 'lastmonth', 'ytd'])
+    await expect(page.locator(`#chartTabs .chart-tab[data-range="${r}"]`)).toHaveCount(1);
+  await page.locator('#chartTabs .chart-tab[data-range="mtd"]').click();
+  await expect(page.locator('#ht_scope')).toHaveText('this month');
 });

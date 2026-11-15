@@ -2804,12 +2804,41 @@ RANGE_SECS = {
 }
 
 
+CALENDAR_RANGES = ("today", "yesterday", "wtd", "lastweek", "mtd", "lastmonth", "ytd")
+
+
+def _calendar_window(range_str, now=None):
+    """(start, end) epochs for a calendar range in the local (TOU) timezone.
+    Weeks start on Sunday. "To date" ranges end now; past ones at their end."""
+    tz = _local_tz()
+    now = datetime.fromtimestamp(now or time.time(), tz)
+    day = datetime(now.year, now.month, now.day, tzinfo=tz)
+    week = day - timedelta(days=(day.weekday() + 1) % 7)
+    month = day.replace(day=1)
+    prev_month = (month - timedelta(days=1)).replace(day=1)
+    start, end = {
+        "today":     (day, now),
+        "yesterday": (day - timedelta(days=1), day),
+        "wtd":       (week, now),
+        "lastweek":  (week - timedelta(days=7), week),
+        "mtd":       (month, now),
+        "lastmonth": (prev_month, month),
+        "ytd":       (day.replace(month=1, day=1), now),
+    }[range_str]
+    # Aware arithmetic is wall-clock, so DST days come out 23h / 25h long.
+    return start.timestamp(), end.timestamp()
+
+
 def _resolve_window(range_str, start_param=None, end_param=None):
     """Return (cutoff, end_ts, range_secs) for a ?range= / ?start=&end= query.
-    "all" = since first reading. Raises ValueError on bad start/end."""
+    "all" = since first reading; CALENDAR_RANGES use the local timezone.
+    Raises ValueError on bad start/end."""
     if start_param and end_param:
         cutoff = float(start_param)
         end_ts = float(end_param)
+        return cutoff, end_ts, max(60, int(end_ts - cutoff))
+    if range_str in CALENDAR_RANGES:
+        cutoff, end_ts = _calendar_window(range_str)
         return cutoff, end_ts, max(60, int(end_ts - cutoff))
     end_ts = time.time()
     if range_str == "all":
@@ -2831,7 +2860,9 @@ def history():
     """Return time-series data for charts.
 
     Query params:
-      range  - Time range: 1m, 1h, 6h, 24h, 7d, 30d, 90d, 1y, all (default: 24h)
+      range  - Time range: 1m, 1h, 6h, 24h, 7d, 30d, 90d, 1y, all, or a
+               calendar range: today, yesterday, wtd, lastweek, mtd,
+               lastmonth, ytd (local timezone; default: 24h)
       resample - Resample interval in seconds (default: auto based on range)
     """
     range_str = request.args.get("range", "24h")
@@ -3050,6 +3081,8 @@ def history():
         result = {
             "range": range_str,
             "range_secs": range_secs,
+            "start": cutoff,
+            "end": end_ts,
             "resample_seconds": sample_secs,
             "readings": [dict(r) for r in rows],
             "period_totals": totals,
