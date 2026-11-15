@@ -5,12 +5,19 @@ import SwiftUI
 struct HistoryView: View {
     @Environment(Store.self) private var store
     private let ranges = [("6h", "6H"), ("24h", "24H"), ("7d", "7D"), ("30d", "30D"), ("90d", "90D")]
+    // Calendar ranges, in the server's local timezone (weeks start Sunday).
+    private let calendar = [("yesterday", "Yday"), ("wtd", "WTD"), ("lastweek", "Last wk"),
+                            ("mtd", "MTD"), ("lastmonth", "Last mo"), ("ytd", "YTD")]
 
     var body: some View {
         @Bindable var store = store
         Page {
             Picker("Range", selection: $store.historyRange) {
                 ForEach(ranges, id: \.0) { Text($0.1).tag($0.0) }
+            }
+            .pickerStyle(.segmented)
+            Picker("Period", selection: $store.historyRange) {
+                ForEach(calendar, id: \.0) { Text($0.1).tag($0.0) }
             }
             .pickerStyle(.segmented)
 

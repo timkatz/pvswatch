@@ -56,6 +56,8 @@ final class Store {
     var history: History?
     /// Since local midnight, for the Now screen's "Today" row.
     var today: History.Totals?
+    /// The whole of yesterday, shown next to today.
+    var yesterday: History.Totals?
     var historyRange = "24h" { didSet { Task { await loadHistory() } } }
     var outages: Outages?
     var tou: Tou?
@@ -130,9 +132,12 @@ final class Store {
 
     func loadToday() async {
         guard let api else { return }
-        let start = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
-        let h: History? = try? await api.get("api/v1/history?start=\(Int(start))&end=\(Int(Date().timeIntervalSince1970))")
-        today = h?.periodTotals
+        let midnight = Calendar.current.startOfDay(for: Date())
+        let start = Calendar.current.date(byAdding: .day, value: -1, to: midnight)!
+        let t: History? = try? await api.get("api/v1/history?start=\(Int(midnight.timeIntervalSince1970))&end=\(Int(Date().timeIntervalSince1970))")
+        today = t?.periodTotals
+        let y: History? = try? await api.get("api/v1/history?start=\(Int(start.timeIntervalSince1970))&end=\(Int(midnight.timeIntervalSince1970))")
+        yesterday = y?.periodTotals
     }
 
     func loadHistory() async {

@@ -41,7 +41,7 @@ struct NowView: View {
                     .multilineTextAlignment(.center)
             }
             .frame(maxHeight: .infinity)
-            if let t = store.today { TodayStrip(t: t) }
+            if let t = store.today { TodayStrip(t: t, y: store.yesterday) }
         }
     }
 
@@ -58,7 +58,7 @@ struct NowView: View {
                 PowerTiles(now: n)
                     .environment(\.statTileHeight, 66)
                     .environment(\.tileMinWidth, 110)
-                if let t = store.today { TodayGrid(t: t, compact: true).frame(maxHeight: .infinity) } else { Spacer(minLength: 0) }
+                if let t = store.today { TodayGrid(t: t, y: store.yesterday, compact: true).frame(maxHeight: .infinity) } else { Spacer(minLength: 0) }
             }
             .frame(width: size.width * 0.44)
         }
@@ -80,7 +80,7 @@ struct NowView: View {
                         .environment(\.tileMinWidth, 120)
                     Card { FlowLegend(now: n, compact: true) }
                     // Today takes the rest of the column, so it ends level with the diagram.
-                    if let t = store.today { TodayGrid(t: t).frame(maxHeight: .infinity) } else { Spacer(minLength: 0) }
+                    if let t = store.today { TodayGrid(t: t, y: store.yesterday).frame(maxHeight: .infinity) } else { Spacer(minLength: 0) }
                 }
                 .frame(width: min(420, max(300, size.width * 0.4)))
             }
@@ -89,31 +89,38 @@ struct NowView: View {
     }
 }
 
-// Today as a 2×2 card that fills spare height (wide layout).
+// Today as a 2×2 card that fills spare height (wide layout), each value
+// with yesterday's underneath.
 struct TodayGrid: View {
     let t: History.Totals
+    let y: History.Totals?
     /// Short screens: no title, smaller numbers.
     var compact = false
     var body: some View {
         Card(title: compact ? nil : "Today") {
             Grid(horizontalSpacing: compact ? 6 : 12, verticalSpacing: compact ? 6 : 12) {
                 GridRow {
-                    item("Solar", Fmt.kwh(t.solarKwh), Theme.text)
-                    item("Home", Fmt.kwh(t.homeKwh), Theme.text)
+                    item("Solar", Fmt.kwh(t.solarKwh), y.map { Fmt.kwh($0.solarKwh) }, Theme.text)
+                    item("Home", Fmt.kwh(t.homeKwh), y.map { Fmt.kwh($0.homeKwh) }, Theme.text)
                 }
                 GridRow {
-                    item("Independence", t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—", Theme.text)
-                    item("Saved", Fmt.money(t.savingsDollars, cents: true), Theme.green)
+                    item("Independence", pct(t), y.map(pct), Theme.text)
+                    item("Saved", Fmt.money(t.savingsDollars, cents: true), y.map { Fmt.money($0.savingsDollars, cents: true) }, Theme.green)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-    private func item(_ label: String, _ value: String, _ color: Color) -> some View {
+    private func pct(_ t: History.Totals) -> String { t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—" }
+    private func item(_ label: String, _ value: String, _ yesterday: String?, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text((compact ? label : label + "").uppercased()).font(.system(size: compact ? 8.5 : 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
+            Text(label.uppercased()).font(.system(size: compact ? 8.5 : 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
             Text(value).font(.system(size: compact ? 17 : 26, weight: .heavy, design: .rounded)).monospacedDigit()
                 .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
+            if let yesterday {
+                Text("Yesterday " + yesterday).font(.system(size: compact ? 9 : 11, weight: .medium)).monospacedDigit()
+                    .foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7)
+            }
         }
         // Rows share the card's height evenly, each one a soft panel.
         .padding(compact ? 7 : 12)
@@ -122,30 +129,37 @@ struct TodayGrid: View {
     }
 }
 
-// Today in one slim row: solar, home, independence, saved.
+// Today in one slim row: solar, home, independence, saved, with
+// yesterday's numbers in small type underneath.
 struct TodayStrip: View {
     let t: History.Totals
+    let y: History.Totals?
     var body: some View {
         HStack(spacing: 0) {
-            item("Solar today", Fmt.kwh(t.solarKwh), Theme.solar)
+            item("Solar today", Fmt.kwh(t.solarKwh), y.map { Fmt.kwh($0.solarKwh) }, Theme.solar)
             divider
-            item("Home today", Fmt.kwh(t.homeKwh), Theme.home)
+            item("Home today", Fmt.kwh(t.homeKwh), y.map { Fmt.kwh($0.homeKwh) }, Theme.home)
             divider
-            item("Independence", t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—", Theme.green)
+            item("Independence", pct(t), y.map(pct), Theme.green)
             divider
-            item("Saved", Fmt.money(t.savingsDollars, cents: true), Theme.green)
+            item("Saved", Fmt.money(t.savingsDollars, cents: true), y.map { Fmt.money($0.savingsDollars, cents: true) }, Theme.green)
         }
         .padding(.vertical, 10)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
     }
-    private var divider: some View { Rectangle().fill(Theme.border).frame(width: 1, height: 26) }
-    private func item(_ label: String, _ value: String, _ color: Color) -> some View {
+    private var divider: some View { Rectangle().fill(Theme.border).frame(width: 1, height: y == nil ? 26 : 38) }
+    private func pct(_ t: History.Totals) -> String { t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—" }
+    private func item(_ label: String, _ value: String, _ yesterday: String?, _ color: Color) -> some View {
         VStack(spacing: 2) {
             Text(label.uppercased()).font(.system(size: 8.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
                 .lineLimit(1).minimumScaleFactor(0.8)
             Text(value).font(.system(size: 15, weight: .bold, design: .rounded)).monospacedDigit()
                 .foregroundStyle(label == "Saved" ? color : Theme.text).lineLimit(1).minimumScaleFactor(0.7)
+            if let yesterday {
+                Text("yday " + yesterday).font(.system(size: 9, weight: .medium)).monospacedDigit()
+                    .foregroundStyle(Theme.dim).lineLimit(1).minimumScaleFactor(0.7)
+            }
         }
         .frame(maxWidth: .infinity)
     }
