@@ -213,7 +213,7 @@ struct SubLine: View {
     let text: String?
     var color: Color = Theme.dim
     var body: some View {
-        Text(text ?? " ").font(.caption).foregroundStyle(color).lineLimit(2)
+        Text(text ?? " ").font(.caption).foregroundStyle(color).lineLimit(2).minimumScaleFactor(0.75)
     }
 }
 

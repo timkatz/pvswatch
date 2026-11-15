@@ -10,7 +10,9 @@ struct NowView: View {
             if let n = store.now {
                 Group {
                     if g.size.width >= 760 { wide(n, g.size) }
-                    else if g.size.width > g.size.height { short(n, g.size) }
+                    // Side by side only when too short to stack (folded Duo in
+                    // landscape); a mid-size window stacks with a bigger diagram.
+                    else if g.size.width > g.size.height && g.size.height < 460 { short(n, g.size) }
                     else { narrow(n) }
                 }
                 .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
@@ -56,8 +58,7 @@ struct NowView: View {
                 PowerTiles(now: n)
                     .environment(\.statTileHeight, 66)
                     .environment(\.tileMinWidth, 110)
-                Spacer(minLength: 0)
-                if let t = store.today { TodayStrip(t: t) }
+                if let t = store.today { TodayGrid(t: t, compact: true).frame(maxHeight: .infinity) } else { Spacer(minLength: 0) }
             }
             .frame(width: size.width * 0.44)
         }
@@ -91,9 +92,11 @@ struct NowView: View {
 // Today as a 2×2 card that fills spare height (wide layout).
 struct TodayGrid: View {
     let t: History.Totals
+    /// Short screens: no title, smaller numbers.
+    var compact = false
     var body: some View {
-        Card(title: "Today") {
-            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+        Card(title: compact ? nil : "Today") {
+            Grid(horizontalSpacing: compact ? 6 : 12, verticalSpacing: compact ? 6 : 12) {
                 GridRow {
                     item("Solar", Fmt.kwh(t.solarKwh), Theme.text)
                     item("Home", Fmt.kwh(t.homeKwh), Theme.text)
@@ -108,12 +111,12 @@ struct TodayGrid: View {
     }
     private func item(_ label: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased()).font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
-            Text(value).font(.system(size: 26, weight: .heavy, design: .rounded)).monospacedDigit()
+            Text((compact ? label : label + "").uppercased()).font(.system(size: compact ? 8.5 : 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
+            Text(value).font(.system(size: compact ? 17 : 26, weight: .heavy, design: .rounded)).monospacedDigit()
                 .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
         }
         // Rows share the card's height evenly, each one a soft panel.
-        .padding(12)
+        .padding(compact ? 7 : 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(Theme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
     }
