@@ -63,9 +63,10 @@ struct NowView: View {
         }
     }
 
-    // Open landscape, Mac: diagram left; status, tiles and breakdown right.
+    // Open landscape, Mac: diagram left; status, tiles, breakdown and today
+    // right. Both columns fill the height and end level.
     private func wide(_ n: Now, _ size: CGSize) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 Card(title: "Energy flow", trailing: n.fetchedAt.map { "live · " + Fmt.time($0) }) {
                     FlowDiagram(now: n).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -77,13 +78,44 @@ struct NowView: View {
                         .environment(\.statTileHeight, 84)
                         .environment(\.tileMinWidth, 120)
                     Card { FlowLegend(now: n, compact: true) }
-                    Spacer(minLength: 0)
+                    // Today takes the rest of the column, so it ends level with the diagram.
+                    if let t = store.today { TodayGrid(t: t).frame(maxHeight: .infinity) } else { Spacer(minLength: 0) }
                 }
-                .frame(width: min(400, max(300, size.width * 0.4)))
+                .frame(width: min(420, max(300, size.width * 0.4)))
             }
             .frame(maxHeight: .infinity)
-            if let t = store.today { TodayStrip(t: t) }
         }
+    }
+}
+
+// Today as a 2×2 card that fills spare height (wide layout).
+struct TodayGrid: View {
+    let t: History.Totals
+    var body: some View {
+        Card(title: "Today") {
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    item("Solar", Fmt.kwh(t.solarKwh), Theme.text)
+                    item("Home", Fmt.kwh(t.homeKwh), Theme.text)
+                }
+                GridRow {
+                    item("Independence", t.independencePct.map { "\(Int($0.rounded()))%" } ?? "—", Theme.text)
+                    item("Saved", Fmt.money(t.savingsDollars, cents: true), Theme.green)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    private func item(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased()).font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.dim)
+            Text(value).font(.system(size: 26, weight: .heavy, design: .rounded)).monospacedDigit()
+                .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        // Rows share the card's height evenly, each one a soft panel.
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(Theme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
